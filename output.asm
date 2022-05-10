@@ -78,23 +78,21 @@ main:
         mov     rax, QWORD [rbp - 8]
         mov     rbx, QWORD [rbp - 16]
         add     rax, rbx
-        ;; -- assign foo -- 
+        ;; -- assign baz -- 
          mov     QWORD [rbp - 24], rax
         ;; -- put --
         mov rdi, QWORD [rbp - 24]
         call put
         ;; -- assign foo -- 
          mov     QWORD [rbp - 32], 500
-        ;; -- assign bar -- 
-         mov     QWORD [rbp - 40], 80
         ;;-- minus --
         mov     rax, QWORD [rbp - 32]
-        mov     rbx, QWORD [rbp - 40]
+        mov     rbx, 80
         sub     rax, rbx
-        ;; -- assign baz -- 
-         mov     QWORD [rbp - 48], rax
+        ;; -- assign foo -- 
+         mov     QWORD [rbp - 40], rax
         ;; -- put --
-        mov rdi, QWORD [rbp - 48]
+        mov rdi, QWORD [rbp - 40]
         call put
         mov rax, SYS_EXIT
         mov rdi, 1

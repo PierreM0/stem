@@ -1,0 +1,8 @@
+foo := 34;
+bar := 35;
+baz := foo + bar;
+put baz;
+
+foo := 500;
+foo := foo - 80;
+put foo

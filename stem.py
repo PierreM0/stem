@@ -19,11 +19,16 @@ def iota(reset = False):
     return iota__
 
 
-OP_ASSIGN = iota()
+OP_ASSIGN = iota(True)
 OP_PLUS   = iota()
 OP_MINUS  = iota()
 OP_PUT    = iota()
+OP_SEMICOLON = iota()
 COUNT_OPS = iota()
+
+VAR = iota()
+INT = iota()
+
 
 ### OPERATIONS #####
 def assign(x, y):
@@ -39,45 +44,148 @@ def put(x):
     return(OP_PUT, x)
 
 
+class Lexer:
+
+    def __init__(self, src):
+        self.src = src
+    
+    def next(self):
+        self.src = self.src.lstrip()
+
+        if len(self.src) == 0:
+            return None
+        
+        if self.src[0] == '+':
+            self.src = self.src[1:]
+            return (OP_PLUS, '+')
+        elif self.src[0] == '-':
+            self.src = self.src[1:]
+            return (OP_MINUS, '-')
+        elif self.src[0] == ';':
+            self.src = self.src[1:]
+            return (OP_SEMICOLON, ';')
+        elif self.src[0] == ':':
+            if self.src[1] == '=':
+                self.src = self.src[2:]
+                return (OP_ASSIGN, ':=')
+            else:
+                print("ERROR: this is not a reconizable token")
+                # @linenumber
+                exit(1)
+        elif self.src[0].isalpha():
+            token = ""
+            i = 0
+            while i < len(self.src) and self.src[i].isalnum():
+                token += self.src[i] 
+                i += 1
+            self.src = self.src[len(token):]
+            if token == "put":
+                return (OP_PUT, token)
+            else:
+                return (VAR, token)
+        elif self.src[0].isnumeric():
+            token = ""
+            i = 0
+            while i < len(self.src) and self.src[i].isnumeric():
+                token += self.src[i]
+                i += 1
+            self.src = self.src[len(token):]
+            return (INT, int(token))
+        
+        elif self.src[0].isspace():
+            self.src = self.src[1:]
+        else:
+            print(self.src[0])
+            assert False, "unreatchable"
+        i+=1
+        
+
+
+def parse_primary(lexer):
+    token = lexer.next()
+    if token != None:
+        return token
+    else:
+        assert False, "unreachable"
+    
+    
+def parse(lexer):
+    lvalue = parse_primary(lexer)
+    if lvalue[0] == OP_PUT:
+        rvalue = parse(lexer)
+        return put(rvalue)
+    elif lvalue[0] == OP_SEMICOLON:
+        return None
+    else:
+        op_token = lexer.next()
+        if op_token != None:
+            if op_token[0] == OP_PLUS:
+                rvalue = parse(lexer)
+                return plus(lvalue, rvalue)
+            elif op_token[0] == OP_MINUS:
+                rvalue = parse(lexer)
+                return minus(lvalue, rvalue)
+            elif op_token[0] == OP_ASSIGN:
+                rvalue = parse(lexer)
+                return assign(lvalue, rvalue)
+            else:
+                print(f"ERROR: unexpected binary operation {op_token}")
+                exit(1)
+    return lvalue
+        
+def load_program_from_file(prog_path):
+    f  = open(prog_path, "r")
+    program = [parse(Lexer(string)) for string in f.read().split(';')]
+    return program
+    
 var_dict = {}
 #### SIMULATE AND COMPILE PROGRAM #####
 def simulate_program(program):
     """Simulate the program."""
     global var_dict
     
-    assert COUNT_OPS == 4, "Op count changed in simulate_program()"
+    assert COUNT_OPS == 5, "Op count changed in simulate_program()"
     for op in program:
         if op[0] == OP_ASSIGN:
-            if type(op[2]) == tuple:
+            tmp = op[2][1]
+            if type(op[2][1]) == tuple:
                 tmp = [op[2]]
-                var_dict[op[1]] = simulate_program(tmp)
-            else:
-                var_dict[op[1]] = op[2]
-                
+                tmp = simulate_program(tmp)
+            var_dict[op[1]] = tmp
         elif op[0] == OP_PLUS:
-            if type(op[1]) == str:
-                tmp = var_dict[op[1]] + var_dict[op[2]]
+            if type(op[1][1]) == str:
+                var1 = var_dict[op[1]]
             else:
-                tmp = op[1] + op[2] 
-            return tmp
-        
-        elif op[0] == OP_MINUS:            
-            if type(op[1]) == str:
-                tmp = var_dict[op[1]] - var_dict[op[2]]
+                var1 = op[1][1]
+            if type(op[2][1]) == str:
+                var2 = var_dict[op[2]]
             else:
-                tmp = op[1] - op[2] 
-            return tmp
-        
-        elif op[0] == OP_PUT:
-            if type(op[1]) == str:
-                print(var_dict[op[1]])
-            else:
-                print(op[1])      
-        else:
-            assert False, "unreatchable "
+                var2 = op[2][1]
+            return var1 + var2
             
+        elif op[0] == OP_MINUS:
+            if type(op[1][1]) == str:
+                var1 = var_dict[op[1]]
+            else:
+                var1 = op[1][1]
+            if type(op[2][1]) == str:
+                var2 = var_dict[op[2]]
+            else:
+                var2 = op[2][1]
+            return var1 - var2
+
+        elif op[0] == OP_PUT:
+            if type(op[1][1]) == str:
+                var = var_dict[op[1]]
+            else:
+                var = op[1][1]
+            print(var)
+        else:
+            print(op)
+            assert False, "unreachable"
+
 esp_add = 0
-def compile_program(file_name, program, rec = False):
+def compile_program(file_name, program):
     """Open a file and write assembly code in it."""
     global esp_add
     global var_dict
@@ -156,30 +264,30 @@ def compile_program(file_name, program, rec = False):
         f.write("        mov     rbp, rsp\n")
         f.write("        sub     rsp, 16\n")
     
-        assert COUNT_OPS == 4, "Op count changed in compile_program()"
+        assert COUNT_OPS == 5, "Op count changed in compile_program()"
         for op in program:
             if op[0] == OP_ASSIGN:
-                tmp = op[2]
-                if type(op[2]) == tuple:
+                tmp = op[2][1]
+                if type(op[2][1]) == tuple:
                     tmp = [op[2]]
-                    string = compile_program(file_name, tmp, True)
+                    string = compile_program(file_name, tmp)
                     f.write(string)
                     tmp = "rax"
                 esp_add += 8
                 var_dict[op[1]] = esp_add 
-                f.write( "        ;; -- assign %s -- \n" % op[1])
+                f.write( "        ;; -- assign %s -- \n" % op[1][1])
                 f.write( " ")
                 f.write(f"        mov     QWORD [rbp - {esp_add}], {tmp}\n")
                     
             elif op[0] == OP_PLUS:
-                if type(op[1]) == str:
+                if type(op[1][1]) == str:
                     var1 = "QWORD [rbp - " + str(var_dict[op[1]]) + "]"
                 else:
-                    var1 = str(op[1])
-                if type(op[2]) == str:
+                    var1 = str(op[1][1])
+                if type(op[2][1]) == str:
                     var2 = "QWORD [rbp - " + str(var_dict[op[2]])+ "]"
                 else:
-                    var2 = str(op[2])
+                    var2 = str(op[2][1])
                 string  = "        ;;-- plus --\n"
                 string += "        mov     rax, %s\n" % var1
                 string += "        mov     rbx, %s\n" % var2
@@ -187,14 +295,14 @@ def compile_program(file_name, program, rec = False):
                 return string
             
             elif op[0] == OP_MINUS:
-                if type(op[1]) == str:
+                if type(op[1][1]) == str:
                     var1 = "QWORD [rbp - " + str(var_dict[op[1]]) + "]"
                 else:
-                    var1 = str(op[1])
-                if type(op[2]) == str:
+                    var1 = str(op[1][1])
+                if type(op[2][1]) == str:
                     var2 = "QWORD [rbp - " + str(var_dict[op[2]])+ "]"
                 else:
-                    var2 = str(op[2])
+                    var2 = str(op[2][1])
                 string  = "        ;;-- minus --\n"
                 string += "        mov     rax, %s\n" % var1
                 string += "        mov     rbx, %s\n" % var2
@@ -202,49 +310,51 @@ def compile_program(file_name, program, rec = False):
                 return string
 
             elif op[0] == OP_PUT:
-                if type(op[1]) == str:
+                if type(op[1][1]) == str:
                     var = "QWORD [rbp - " + str(var_dict[op[1]]) + "]"
                 else:
-                    var = str(op[1])
+                    var = str(op[1][1])
                 f.write("        ;; -- put --\n")
                 f.write("        mov rdi, %s\n" % var)
                 f.write("        call put\n")
             else:
+                print(op)
                 assert False, "unreachable"
 
         f.write("        mov rax, SYS_EXIT\n")
         f.write("        mov rdi, 1\n")
         f.write("        syscall\n")
-
         f.write("_start:\n")
         f.write("        call main\n")
         f.close()
-                
+
+def usage():
+    print("ERROR: usage ./stem.py [SUBCOMMAND] <program>")
+    print("SUBCOMMANDS:")
+    print("    com: compile the program")
+    print("    sim: simulate the program")
+
+def shift(lst):
+    return (lst[0], lst[1:])
+
 def main():
 
-    program = [
-        assign("foo", 34),
-        assign("bar", 35),
-        assign("foo", plus("foo", "bar")),
-        put("foo"),
-        assign("foo", 500),
-        assign("bar", 80),
-        assign("baz", minus("foo", "bar")),
-        put("baz")
-    ]
-
-    if len(sys.argv) < 2:
-        print("ERROR: usage ./stem.py [SUBCOMMAND] <program>")
-        print("SUBCOMMANDS:")
-        print("    com: compile the program")
-        print("    sim: simulate the program")
+    argv = sys.argv
+    
+    assert len(argv) > 1
+    prg_name, argv = shift(argv)
+    if len(argv) < 1:
+        usage()
         exit(1)
         
-    subcommand = sys.argv[1]
+    subcommand, argv = shift(argv)
+    prg_path,   argv = shift(argv)
+    
+    program = load_program_from_file(prg_path)
 
     if subcommand == "sim":
-
         simulate_program(program)
+        
     elif subcommand == "com":
         compile_program("output.asm", program)
         run_and_write(["nasm", "-felf64", "output.asm"])
@@ -252,7 +362,7 @@ def main():
 
     else:
         print(f"ERROR: unknown subcommand {subcommand}")
-
+        exit(1)
 
     
 if __name__ == '__main__':
