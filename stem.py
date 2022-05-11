@@ -23,6 +23,11 @@ OP_ASSIGN = iota(True)
 OP_PLUS   = iota()
 OP_MINUS  = iota()
 OP_PUT    = iota()
+OP_EQUAL  = iota()
+# OP_WHILE  = iota()
+# OP_OPEN_BRACKET  = iota()
+# OP_CLOSE_BRACKET = iota()
+
 OP_SEMICOLON = iota()
 COUNT_OPS = iota()
 
@@ -40,37 +45,73 @@ def plus(x, y):
 def minus(x, y):
     return (OP_MINUS, x, y)
 
+def equal(x, y):
+    return(OP_EQUAL, x, y)
+
 def put(x):
     return(OP_PUT, x)
 
 
+lexer_line = 0
+lexer_col  = 0
+
+def left_strip(string):
+    col = 0
+    line = 0
+    while (col+line) < len(string) and string[col+line].isspace():
+        if string[col+line] == '\n':
+            line, col = line + 1 , 0
+        else:
+            col += 1
+    return (col, line, string[col+line:])
+        
 class Lexer:
 
-    def __init__(self, src):
+    def __init__(self, src, file_path):
         self.src = src
+        self.file_path = file_path
     
     def next(self):
-        self.src = self.src.lstrip()
+        global lexer_line
+        global lexer_col
 
+        assert COUNT_OPS == 6, "Op count changed in Lexer().next()"
+        
+        scol, sline, self.src = left_strip(self.src)
+        lexer_line += sline
+        if sline > 0:
+            lexer_col  = scol
+        else:
+            lexer_col += scol
+        
+        pos = (self.file_path, lexer_line, lexer_col)
+        
         if len(self.src) == 0:
             return None
         
         if self.src[0] == '+':
             self.src = self.src[1:]
-            return (OP_PLUS, '+')
+            lexer_col += 1
+            return (OP_PLUS, '+', pos)
         elif self.src[0] == '-':
             self.src = self.src[1:]
-            return (OP_MINUS, '-')
+            lexer_col += 1
+            return (OP_MINUS, '-', pos)
+        elif self.src[0] == '=':
+            self.src = self.src[1:]
+            lexer_col += 1
+            return (OP_EQUAL, '=', pos)
         elif self.src[0] == ';':
             self.src = self.src[1:]
-            return (OP_SEMICOLON, ';')
+            lexer_col += 1
+            return (OP_SEMICOLON, ';', pos)
         elif self.src[0] == ':':
             if self.src[1] == '=':
                 self.src = self.src[2:]
-                return (OP_ASSIGN, ':=')
+                lexer_col += 2
+                return (OP_ASSIGN, ':=', pos)
             else:
-                print("ERROR: this is not a reconizable token")
-                # @linenumber
+                print(f"\"{self.file_path}\":{lexer_line}:{lexer_col}: ERROR: `{self.src[0]}` is not a reconizable token")
                 exit(1)
         elif self.src[0].isalpha():
             token = ""
@@ -79,10 +120,11 @@ class Lexer:
                 token += self.src[i] 
                 i += 1
             self.src = self.src[len(token):]
+            lexer_col += i
             if token == "put":
-                return (OP_PUT, token)
+                return (OP_PUT, token, pos)
             else:
-                return (VAR, token)
+                return (VAR, token, pos)
         elif self.src[0].isnumeric():
             token = ""
             i = 0
@@ -90,14 +132,17 @@ class Lexer:
                 token += self.src[i]
                 i += 1
             self.src = self.src[len(token):]
-            return (INT, int(token))
-        
-        elif self.src[0].isspace():
+            lexer_col += i
+            return (INT, int(token), pos)
+        elif self.src[0] == '\n':
+            lexer_col = 0
+            lexer_line += 1
+        elif self.src[0].isspace() and self.src[0] != '\n':
             self.src = self.src[1:]
+            lexer_col += 1
         else:
-            print(self.src[0])
-            assert False, "unreatchable"
-        i+=1
+            print(f"\"{self.file_path}\":{lexer_line}:{lexer_col}: ERROR: `{self.src[0]}` is not a reconizable token")
+            exit(1)
         
 
 
@@ -111,6 +156,9 @@ def parse_primary(lexer):
     
 def parse(lexer):
     lvalue = parse_primary(lexer)
+    
+    assert COUNT_OPS == 6, "Op count changed in parse()"
+
     if lvalue[0] == OP_PUT:
         rvalue = parse(lexer)
         return put(rvalue)
@@ -128,14 +176,18 @@ def parse(lexer):
             elif op_token[0] == OP_ASSIGN:
                 rvalue = parse(lexer)
                 return assign(lvalue, rvalue)
+            elif op_token[0] == OP_EQUAL:
+                rvalue = parse(lexer)
+                return equal(lvalue, rvalue)
             else:
-                print(f"ERROR: unexpected binary operation {op_token}")
+                f, l, c = op_token[2]
+                print(f"\"{f}\":{l}:{c} ERROR: unexpected binary operation `{op_token[1]}`")
                 exit(1)
     return lvalue
         
 def load_program_from_file(prog_path):
     f  = open(prog_path, "r")
-    program = [parse(Lexer(string)) for string in f.read().split(';')]
+    program = [parse(Lexer(string, prog_path)) for string in f.read().split(';')]
     return program
     
 var_dict = {}
@@ -144,39 +196,49 @@ def simulate_program(program):
     """Simulate the program."""
     global var_dict
     
-    assert COUNT_OPS == 5, "Op count changed in simulate_program()"
+    assert COUNT_OPS == 6, "Op count changed in simulate_program()"
     for op in program:
         if op[0] == OP_ASSIGN:
             tmp = op[2][1]
             if type(op[2][1]) == tuple:
                 tmp = [op[2]]
                 tmp = simulate_program(tmp)
-            var_dict[op[1]] = tmp
+            var_dict[op[1][1]] = tmp
         elif op[0] == OP_PLUS:
             if type(op[1][1]) == str:
-                var1 = var_dict[op[1]]
+                var1 = var_dict[op[1][1]]
             else:
                 var1 = op[1][1]
             if type(op[2][1]) == str:
-                var2 = var_dict[op[2]]
+                var2 = var_dict[op[2][1]]
             else:
                 var2 = op[2][1]
             return var1 + var2
             
         elif op[0] == OP_MINUS:
             if type(op[1][1]) == str:
-                var1 = var_dict[op[1]]
+                var1 = var_dict[op[1][1]]
             else:
                 var1 = op[1][1]
             if type(op[2][1]) == str:
-                var2 = var_dict[op[2]]
+                var2 = var_dict[op[2][1]]
             else:
                 var2 = op[2][1]
             return var1 - var2
-
+        elif op[0] == OP_EQUAL:
+            if type(op[1][1]) == str:
+                var1 = var_dict[op[1][1]]
+            else:
+                var1 = op[1][1]
+            if type(op[2][1]) == str:
+                var2 = var_dict[op[2][1]]
+            else:
+                var2 = op[2][1]
+            res = 1 if var1 == var2 else 0
+            return res
         elif op[0] == OP_PUT:
             if type(op[1][1]) == str:
-                var = var_dict[op[1]]
+                var = var_dict[op[1][1]]
             else:
                 var = op[1][1]
             print(var)
@@ -264,7 +326,7 @@ def compile_program(file_name, program):
         f.write("        mov     rbp, rsp\n")
         f.write("        sub     rsp, 16\n")
     
-        assert COUNT_OPS == 5, "Op count changed in compile_program()"
+        assert COUNT_OPS == 6, "Op count changed in compile_program()"
         for op in program:
             if op[0] == OP_ASSIGN:
                 tmp = op[2][1]
@@ -274,18 +336,18 @@ def compile_program(file_name, program):
                     f.write(string)
                     tmp = "rax"
                 esp_add += 8
-                var_dict[op[1]] = esp_add 
+                var_dict[op[1][1]] = esp_add 
                 f.write( "        ;; -- assign %s -- \n" % op[1][1])
                 f.write( " ")
                 f.write(f"        mov     QWORD [rbp - {esp_add}], {tmp}\n")
                     
             elif op[0] == OP_PLUS:
                 if type(op[1][1]) == str:
-                    var1 = "QWORD [rbp - " + str(var_dict[op[1]]) + "]"
+                    var1 = "QWORD [rbp - " + str(var_dict[op[1][1]]) + "]"
                 else:
                     var1 = str(op[1][1])
                 if type(op[2][1]) == str:
-                    var2 = "QWORD [rbp - " + str(var_dict[op[2]])+ "]"
+                    var2 = "QWORD [rbp - " + str(var_dict[op[2][1]])+ "]"
                 else:
                     var2 = str(op[2][1])
                 string  = "        ;;-- plus --\n"
@@ -296,11 +358,11 @@ def compile_program(file_name, program):
             
             elif op[0] == OP_MINUS:
                 if type(op[1][1]) == str:
-                    var1 = "QWORD [rbp - " + str(var_dict[op[1]]) + "]"
+                    var1 = "QWORD [rbp - " + str(var_dict[op[1][1]]) + "]"
                 else:
                     var1 = str(op[1][1])
                 if type(op[2][1]) == str:
-                    var2 = "QWORD [rbp - " + str(var_dict[op[2]])+ "]"
+                    var2 = "QWORD [rbp - " + str(var_dict[op[2][1]])+ "]"
                 else:
                     var2 = str(op[2][1])
                 string  = "        ;;-- minus --\n"
@@ -309,9 +371,25 @@ def compile_program(file_name, program):
                 string += "        sub     rax, rbx\n"
                 return string
 
+            elif op[0] == OP_EQUAL:
+                if type(op[1][1]) == str:
+                    var1 = "QWORD [rbp - " + str(var_dict[op[1][1]]) + "]"
+                else:
+                    var1 = str(op[1][1])
+                if type(op[2][1]) == str:
+                    var2 = "QWORD [rbp - " + str(var_dict[op[2][1]])+ "]"
+                else:
+                    var2 = str(op[2][1])
+                string  = "        ;;-- equal --\n"
+                string += "        mov     rax, %s\n" % var1
+                string += "        cmp     rax, %s\n" % var2
+                string += "        sete    al      \n"
+                string += "        movzx   rax, al\n"
+                return string
+            
             elif op[0] == OP_PUT:
                 if type(op[1][1]) == str:
-                    var = "QWORD [rbp - " + str(var_dict[op[1]]) + "]"
+                    var = "QWORD [rbp - " + str(var_dict[op[1][1]]) + "]"
                 else:
                     var = str(op[1][1])
                 f.write("        ;; -- put --\n")
