@@ -24,16 +24,22 @@ OP_PLUS   = iota()
 OP_MINUS  = iota()
 OP_PUT    = iota()
 OP_EQUAL  = iota()
+OP_IF     = iota()
+
+
 # OP_WHILE  = iota()
-# OP_OPEN_BRACKET  = iota()
-# OP_CLOSE_BRACKET = iota()
+OP_OPEN_BRACKET  = iota()
+OP_CLOSE_BRACKET = iota()
+OP_OPEN_PAREN    = iota()
+OP_CLOSE_PAREN   = iota()
+
 
 OP_SEMICOLON = iota()
 COUNT_OPS = iota()
 
 VAR = iota()
 INT = iota()
-
+EOF = iota()
 
 ### OPERATIONS #####
 def assign(x, y):
@@ -47,6 +53,9 @@ def minus(x, y):
 
 def equal(x, y):
     return(OP_EQUAL, x, y)
+
+def iff(cond, body):
+    return (OP_IF, cond, body)
 
 def put(x):
     return(OP_PUT, x)
@@ -64,7 +73,11 @@ def left_strip(string):
         else:
             col += 1
     return (col, line, string[col+line:])
-        
+
+
+def crossreference_program(program):
+    return program
+    
 class Lexer:
 
     def __init__(self, src, file_path):
@@ -75,7 +88,7 @@ class Lexer:
         global lexer_line
         global lexer_col
 
-        assert COUNT_OPS == 6, "Op count changed in Lexer().next()"
+        assert COUNT_OPS == 11, "Op count changed in Lexer().next()"
         
         scol, sline, self.src = left_strip(self.src)
         lexer_line += sline
@@ -97,6 +110,23 @@ class Lexer:
             self.src = self.src[1:]
             lexer_col += 1
             return (OP_MINUS, '-', pos)
+        elif self.src[0] == '(':
+            self.src = self.src[1:]
+            lexer_col += 1
+            return (OP_OPEN_PAREN, '(', pos)
+        elif self.src[0] == ')':
+            self.src = self.src[1:]
+            lexer_col += 1
+            return (OP_CLOSE_PAREN, ')', pos)
+
+        elif self.src[0] == '{':
+            self.src = self.src[1:]
+            lexer_col += 1
+            return (OP_OPEN_BRACKET, '{', pos)
+        elif self.src[0] == '}':
+            self.src = self.src[1:]
+            lexer_col += 1
+            return (OP_CLOSE_BRACKET, '}', pos)
         elif self.src[0] == '=':
             self.src = self.src[1:]
             lexer_col += 1
@@ -123,6 +153,8 @@ class Lexer:
             lexer_col += i
             if token == "put":
                 return (OP_PUT, token, pos)
+            if token == "if":
+                return (OP_IF, token, pos)
             else:
                 return (VAR, token, pos)
         elif self.src[0].isnumeric():
@@ -145,25 +177,82 @@ class Lexer:
             exit(1)
         
 
-
 def parse_primary(lexer):
     token = lexer.next()
     if token != None:
         return token
     else:
-        assert False, "unreachable"
+        return EOF
     
+def parse_if(lexer):
+    global in_paren
+    global in_bracket
+    paren = lexer.next()
+    if paren[0] != OP_OPEN_PAREN:
+        f, l, c = paren[2] 
+        print(f"{f}:{l}:{c}: ERROR: after expected `(` after `if`, but got `{paren[1]}`")
+        exit(1)
+    in_paren += 1
+    condition = parse(lexer)
+    bracket = lexer.next()
+    if bracket[0] != OP_OPEN_BRACKET:
+        f, l, c = bracket[2] 
+        print(f"{f}:{l}:{c}: ERROR: after expected `%s` after `)`, but got `{bracket[1]}`" % "{")
+        exit(1) 
+    in_bracket += 1
+    body = []
+    token = lexer.next()
+    src = str(token[1])
+    while token[0] != OP_CLOSE_BRACKET:
+        token = lexer.next()
+        if token == None:
+            print("token was equal to none, whatever that means TODO: improve this error message")
+            exit(1)
+        src += " " + str(token[1])
+    body = parse(Lexer(src, "TODO: change this source"))
+    return condition, body
+        
+in_paren = 0
+in_bracket  = 0
     
 def parse(lexer):
+    global in_paren
+    global in_bracket
+    ast = 0;
     lvalue = parse_primary(lexer)
-    
-    assert COUNT_OPS == 6, "Op count changed in parse()"
 
+    assert COUNT_OPS == 11, "Op count changed in parse()"
+    if lvalue == EOF:
+        return EOF
     if lvalue[0] == OP_PUT:
         rvalue = parse(lexer)
         return put(rvalue)
     elif lvalue[0] == OP_SEMICOLON:
         return None
+    elif lvalue[0] == OP_IF:
+        cond, body = parse_if(lexer)
+        return iff(cond, body)
+    elif lvalue[0] == OP_OPEN_PAREN:
+        # TODO: implement OPEN_PAREN
+        # in_paren += 1
+         assert False, "TODO: Not implemented yet"
+    elif lvalue[0] == OP_CLOSE_PAREN:
+        if in_paren < 0:
+            f, l, c = lvalue[2] 
+            print(f"{f}:{l}:{c}: ERROR: no parenthesis before `)`")
+            exit(1)
+        in_paren -= 1
+        return lvalue
+    elif lvalue[0] == OP_OPEN_BRACKET:
+        # TODO; implent OPEN_BRACKET
+        in_bracket += 1
+        assert False, "TOD0: Not implemented yet"
+    elif lvalue[0] == OP_CLOSE_BRACKET:
+        in_bracket -= 1
+        if in_bracket < 0:
+            f, l, c = lvalue[2] 
+            print("%s:%s:%s: ERROR: no bracket before `}`" % (str(f), str(l), str(c)))
+            exit(1)
     else:
         op_token = lexer.next()
         if op_token != None:
@@ -179,15 +268,47 @@ def parse(lexer):
             elif op_token[0] == OP_EQUAL:
                 rvalue = parse(lexer)
                 return equal(lvalue, rvalue)
+            elif op_token[0] == OP_OPEN_PAREN:
+                # @TODO: implement OPEN_PAREN
+                # in_paren += 1
+                assert False, "TODO: Not implemented yet"
+            elif op_token[0] == OP_CLOSE_PAREN:
+                if in_paren < 0:
+                    f, l, c = lvalue[2] 
+                    print(f"{f}:{l}:{c}: ERROR: no parenthesis before `)`")
+                    exit(1)
+                in_paren -= 1
+                return lvalue
+
+            elif op_token[0] == OP_OPEN_BRACKET:
+                # @TODO: implement OPEN_BRACKET
+                in_bracket += 1
+
+            
+            elif op_token[0] == OP_CLOSE_BRACKET:
+                in_bracket -= 1
+                if in_bracket < 0:
+                    f, l, c = lvalue[2] 
+                    print(f"{f}:{l}:{c}: ERROR: no bracket before " + "`}`")
+                    exit(1)
+            elif op_token[0] == OP_SEMICOLON:
+                # return the entier parsed AST
+                pass
             else:
+                
                 f, l, c = op_token[2]
-                print(f"\"{f}\":{l}:{c} ERROR: unexpected binary operation `{op_token[1]}`")
+                print(f"./{f}:{l}:{c} ERROR: unexpected binary operation `{op_token[1]}`, the value before was `{lvalue[1]}`")
                 exit(1)
-    return lvalue
+        return (lvalue)
         
 def load_program_from_file(prog_path):
     f  = open(prog_path, "r")
-    program = [parse(Lexer(string, prog_path)) for string in f.read().split(';')]
+    program = []
+    expr = 1
+    lexer = Lexer(f.read(), prog_path)
+    while expr != EOF:
+        expr = parse(lexer)
+        program.append(expr)        
     return program
     
 var_dict = {}
@@ -196,8 +317,10 @@ def simulate_program(program):
     """Simulate the program."""
     global var_dict
     
-    assert COUNT_OPS == 6, "Op count changed in simulate_program()"
+    assert COUNT_OPS == 11, "Op count changed in simulate_program()"
     for op in program:
+        if op == EOF:
+            exit(0)
         if op[0] == OP_ASSIGN:
             tmp = op[2][1]
             if type(op[2][1]) == tuple:
@@ -242,93 +365,119 @@ def simulate_program(program):
             else:
                 var = op[1][1]
             print(var)
+        elif op[0] == OP_IF:
+            cond = simulate_program([op[1]])
+            if cond != 0:
+                simulate_program([op[2]])
+            
+            
+        elif op[0] == OP_OPEN_PAREN:
+            assert False, "TODO: Not implemented yet"
+        elif op[0] == OP_CLOSE_PAREN:
+            assert False, "TODO: Not implemented yet"
+        elif op[0] == OP_OPEN_BRACKET:
+            assert False, "TODO: Not implemented yet"
+        elif op[0] == OP_CLOSE_BRACKET:
+            assert False, "TODO: Not implemented yet"
+
+            
         else:
             print(op)
             assert False, "unreachable"
 
 esp_add = 0
-def compile_program(file_name, program):
+def compile_program(file_name, program, rec = False):
     """Open a file and write assembly code in it."""
     global esp_add
     global var_dict
 
-    with open("output.asm", "w") as f:
-        f.write("BITS 64\n")
-        f.write("%define SYS_EXIT 60\n")
-        f.write("segment .text\n")
-        f.write("global _start\n")
-        f.write("put:\n")
-        f.write("        push    rbp\n")
-        f.write("        mov     rbp, rsp\n")
-        f.write("        sub     rsp, 64\n")
-        f.write("        mov     QWORD [rbp-56], rdi\n")
-        f.write("        mov     DWORD [rbp-4], 1\n")
-        f.write("        mov     eax, DWORD [rbp-4]\n")
-        f.write("        cdqe\n")
-        f.write("        mov     edx, 32\n")
-        f.write("        sub     rdx, rax\n")
-        f.write("        mov     BYTE [rbp-48+rdx], 10\n")
-        f.write(".L2:\n")
-        f.write("        mov     rcx, QWORD [rbp-56]\n")
-        f.write("        mov     rdx, 7378697629483820647\n")
-        f.write("        mov     rax, rcx\n")
-        f.write("        imul    rdx\n")
-        f.write("        sar     rdx, 2\n")
-        f.write("        mov     rax, rcx\n")
-        f.write("        sar     rax, 63\n")
-        f.write("        sub     rdx, rax\n")
-        f.write("        mov     rax, rdx\n")
-        f.write("        sal     rax, 2\n")
-        f.write("        add     rax, rdx\n")
-        f.write("        add     rax, rax\n")
-        f.write("        sub     rcx, rax\n")
-        f.write("        mov     rdx, rcx\n")
-        f.write("        mov     eax, edx\n")
-        f.write("        lea     ecx, [rax+48]\n")
-        f.write("        mov     eax, DWORD [rbp-4]\n")
-        f.write("        lea     edx, [rax+1]\n")
-        f.write("        mov     DWORD [rbp-4], edx\n")
-        f.write("        cdqe\n")
-        f.write("        mov     edx, 31\n")
-        f.write("        sub     rdx, rax\n")
-        f.write("        mov     eax, ecx\n")
-        f.write("        mov     BYTE [rbp-48+rdx], al\n")
-        f.write("        mov     rcx, QWORD [rbp-56]\n")
-        f.write("        mov     rdx, 7378697629483820647\n")
-        f.write("        mov     rax, rcx\n")
-        f.write("        imul    rdx\n")
-        f.write("        mov     rax, rdx\n")
-        f.write("        sar     rax, 2\n")
-        f.write("        sar     rcx, 63\n")
-        f.write("        mov     rdx, rcx\n")
-        f.write("        sub     rax, rdx\n")
-        f.write("        mov     QWORD [rbp-56], rax\n")
-        f.write("        cmp     QWORD [rbp-56], 0\n")
-        f.write("        jg      .L2\n")
-        f.write("        mov     eax, DWORD [rbp-4]\n")
-        f.write("        cdqe\n")
-        f.write("        mov     edx, DWORD [rbp-4]\n")
-        f.write("        movsx   rdx, edx\n")
-        f.write("        mov     ecx, 32\n")
-        f.write("        sub     rcx, rdx\n")
-        f.write("        lea     rdx, [rbp-48]\n")
-        f.write("        add     rcx, rdx\n")
-        f.write("        mov     rdx, rax\n")
-        f.write("        mov     rsi, rcx\n")
-        f.write("        mov     edi, 1\n")
-        f.write("        mov     rax, 1\n")
-        f.write("        syscall\n")
-        f.write("        nop\n")
-        f.write("        leave\n")
-        f.write("        ret\n")
-        f.write("main:\n")
-        f.write("        push    rbp\n")
-        f.write("        mov     rbp, rsp\n")
-        f.write("        sub     rsp, 16\n")
-    
-        assert COUNT_OPS == 6, "Op count changed in compile_program()"
-        for op in program:
-            if op[0] == OP_ASSIGN:
+    if rec:
+        mode = "a"
+    else:
+        mode = "w"
+
+    with open("output.asm", mode) as f:
+        if not rec:
+            f.write("BITS 64\n")
+            f.write("%define SYS_EXIT 60\n")
+            f.write("segment .text\n")
+            f.write("global _start\n")
+            f.write("put:\n")
+            f.write("        push    rbp\n")
+            f.write("        mov     rbp, rsp\n")
+            f.write("        sub     rsp, 64\n")
+            f.write("        mov     QWORD [rbp-56], rdi\n")
+            f.write("        mov     DWORD [rbp-4], 1\n")
+            f.write("        mov     eax, DWORD [rbp-4]\n")
+            f.write("        cdqe\n")
+            f.write("        mov     edx, 32\n")
+            f.write("        sub     rdx, rax\n")
+            f.write("        mov     BYTE [rbp-48+rdx], 10\n")
+            f.write(".L2:\n")
+            f.write("        mov     rcx, QWORD [rbp-56]\n")
+            f.write("        mov     rdx, 7378697629483820647\n")
+            f.write("        mov     rax, rcx\n")
+            f.write("        imul    rdx\n")
+            f.write("        sar     rdx, 2\n")
+            f.write("        mov     rax, rcx\n")
+            f.write("        sar     rax, 63\n")
+            f.write("        sub     rdx, rax\n")
+            f.write("        mov     rax, rdx\n")
+            f.write("        sal     rax, 2\n")
+            f.write("        add     rax, rdx\n")
+            f.write("        add     rax, rax\n")
+            f.write("        sub     rcx, rax\n")
+            f.write("        mov     rdx, rcx\n")
+            f.write("        mov     eax, edx\n")
+            f.write("        lea     ecx, [rax+48]\n")
+            f.write("        mov     eax, DWORD [rbp-4]\n")
+            f.write("        lea     edx, [rax+1]\n")
+            f.write("        mov     DWORD [rbp-4], edx\n")
+            f.write("        cdqe\n")
+            f.write("        mov     edx, 31\n")
+            f.write("        sub     rdx, rax\n")
+            f.write("        mov     eax, ecx\n")
+            f.write("        mov     BYTE [rbp-48+rdx], al\n")
+            f.write("        mov     rcx, QWORD [rbp-56]\n")
+            f.write("        mov     rdx, 7378697629483820647\n")
+            f.write("        mov     rax, rcx\n")
+            f.write("        imul    rdx\n")
+            f.write("        mov     rax, rdx\n")
+            f.write("        sar     rax, 2\n")
+            f.write("        sar     rcx, 63\n")
+            f.write("        mov     rdx, rcx\n")
+            f.write("        sub     rax, rdx\n")
+            f.write("        mov     QWORD [rbp-56], rax\n")
+            f.write("        cmp     QWORD [rbp-56], 0\n")
+            f.write("        jg      .L2\n")
+            f.write("        mov     eax, DWORD [rbp-4]\n")
+            f.write("        cdqe\n")
+            f.write("        mov     edx, DWORD [rbp-4]\n")
+            f.write("        movsx   rdx, edx\n")
+            f.write("        mov     ecx, 32\n")
+            f.write("        sub     rcx, rdx\n")
+            f.write("        lea     rdx, [rbp-48]\n")
+            f.write("        add     rcx, rdx\n")
+            f.write("        mov     rdx, rax\n")
+            f.write("        mov     rsi, rcx\n")
+            f.write("        mov     edi, 1\n")
+            f.write("        mov     rax, 1\n")
+            f.write("        syscall\n")
+            f.write("        nop\n")
+            f.write("        leave\n")
+            f.write("        ret\n")
+            f.write("main:\n")
+            f.write("        push    rbp\n")
+            f.write("        mov     rbp, rsp\n")
+            f.write("        sub     rsp, 16\n")
+        
+        assert COUNT_OPS == 11, "Op count changed in compile_program()"
+        for ip in range(len(program)):
+            op = program[ip]
+
+            if op == EOF:
+                pass
+            elif op[0] == OP_ASSIGN:
                 tmp = op[2][1]
                 if type(op[2][1]) == tuple:
                     tmp = [op[2]]
@@ -392,19 +541,34 @@ def compile_program(file_name, program):
                     var = "QWORD [rbp - " + str(var_dict[op[1][1]]) + "]"
                 else:
                     var = str(op[1][1])
+                print("put")
                 f.write("        ;; -- put --\n")
-                f.write("        mov rdi, %s\n" % var)
-                f.write("        call put\n")
+                f.write("        mov     rdi, %s\n" % var)
+                f.write("        call    put\n")
+
+            elif op[0] == OP_IF:
+                f.write("        ;; -- if --\n")
+                cond = compile_program(file_name, [op[1]])
+                f.write(cond)
+                f.write("        test    rax, rax\n")
+                f.write("        jz      addr_%d\n" % ip)
+                f.write("addr_%d:\n" % ip)
+                f.close()
+                compile_program(file_name, [op[2]], True)
+                return
             else:
                 print(op)
                 assert False, "unreachable"
+    f.close()
+    f = open("output.asm", "a")    
+    f.write("        mov rax, SYS_EXIT\n")
+    f.write("        mov rdi, 1\n")
+    f.write("        syscall\n")
+    f.write("_start:\n")
+    f.write("        call main\n")
+    f.close()
+    return
 
-        f.write("        mov rax, SYS_EXIT\n")
-        f.write("        mov rdi, 1\n")
-        f.write("        syscall\n")
-        f.write("_start:\n")
-        f.write("        call main\n")
-        f.close()
 
 def usage():
     print("ERROR: usage ./stem.py [SUBCOMMAND] <program>")
@@ -418,7 +582,6 @@ def shift(lst):
 def main():
 
     argv = sys.argv
-    
     assert len(argv) > 1
     prg_name, argv = shift(argv)
     if len(argv) < 1:

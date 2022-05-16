@@ -80,20 +80,18 @@ main:
         add     rax, rbx
         ;; -- assign baz -- 
          mov     QWORD [rbp - 24], rax
+        ;; -- if --
+        ;;-- equal --
+        mov     rax, QWORD [rbp - 24]
+        cmp     rax, 69
+        sete    al      
+        movzx   rax, al
+        test    rax, rax
+        jz      addr_3
+addr_3:
         ;; -- put --
-        mov rdi, QWORD [rbp - 24]
-        call put
-        ;; -- assign foo -- 
-         mov     QWORD [rbp - 32], 500
-        ;;-- minus --
-        mov     rax, QWORD [rbp - 32]
-        mov     rbx, 80
-        sub     rax, rbx
-        ;; -- assign foo -- 
-         mov     QWORD [rbp - 40], rax
-        ;; -- put --
-        mov rdi, QWORD [rbp - 40]
-        call put
+        mov     rdi, 69
+        call    put
         mov rax, SYS_EXIT
         mov rdi, 1
         syscall

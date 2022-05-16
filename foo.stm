@@ -1,8 +1,7 @@
 foo := 34;
 bar := 35;
 baz := foo + bar;
-put baz;
+if (baz = 69) {
+	put 69
+}
 
-foo := 500;
-foo := foo - 80;
-put foo
