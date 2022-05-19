@@ -1,0 +1,14 @@
+if (1 = 1) {
+	put 420;
+}
+
+foo := 34;
+baz := 21;
+if (1 = 1) {
+    foo := foo + 35;
+    if (foo = 68) {
+        baz := 12;
+    }
+}
+put baz;
+put 45

@@ -1,4 +1,4 @@
-#! /usr/bin/python
+#! /usr/bin/python3
 import sys
 import subprocess
 
@@ -24,10 +24,10 @@ OP_PLUS   = iota()
 OP_MINUS  = iota()
 OP_PUT    = iota()
 OP_EQUAL  = iota()
+OP_GT     = iota()
+
 OP_IF     = iota()
-
-
-# OP_WHILE  = iota()
+OP_WHILE  = iota()
 OP_OPEN_BRACKET  = iota()
 OP_CLOSE_BRACKET = iota()
 OP_OPEN_PAREN    = iota()
@@ -40,8 +40,11 @@ COUNT_OPS = iota()
 VAR = iota()
 INT = iota()
 EOF = iota()
+EOBrack = iota()
 
 ### OPERATIONS #####
+assert COUNT_OPS == 13, "number of expected op in operations"
+
 def assign(x, y):
     return (OP_ASSIGN, x, y)
 
@@ -53,9 +56,14 @@ def minus(x, y):
 
 def equal(x, y):
     return(OP_EQUAL, x, y)
+def gt(x, y):
+    return(OP_GT, x, y)
 
-def iff(cond, body):
+def if_(cond, body):
     return (OP_IF, cond, body)
+
+def while_(cond, body):
+    return (OP_WHILE, cond, body)
 
 def put(x):
     return(OP_PUT, x)
@@ -88,7 +96,7 @@ class Lexer:
         global lexer_line
         global lexer_col
 
-        assert COUNT_OPS == 11, "Op count changed in Lexer().next()"
+        assert COUNT_OPS == 13, "Op count changed in Lexer().next()"
         
         scol, sline, self.src = left_strip(self.src)
         lexer_line += sline
@@ -131,6 +139,10 @@ class Lexer:
             self.src = self.src[1:]
             lexer_col += 1
             return (OP_EQUAL, '=', pos)
+        elif self.src[0] == '>':
+            self.src = self.src[1:]
+            lexer_col += 1
+            return (OP_GT, '>', pos)
         elif self.src[0] == ';':
             self.src = self.src[1:]
             lexer_col += 1
@@ -155,6 +167,8 @@ class Lexer:
                 return (OP_PUT, token, pos)
             if token == "if":
                 return (OP_IF, token, pos)
+            if token == "while":
+                return (OP_WHILE, token, pos)
             else:
                 return (VAR, token, pos)
         elif self.src[0].isnumeric():
@@ -199,19 +213,73 @@ def parse_if(lexer):
         f, l, c = bracket[2] 
         print(f"{f}:{l}:{c}: ERROR: after expected `%s` after `)`, but got `{bracket[1]}`" % "{")
         exit(1) 
+    current_bracket = in_bracket
     in_bracket += 1
+    meeted_bracket = in_bracket
     body = []
     token = lexer.next()
     src = str(token[1])
-    while token[0] != OP_CLOSE_BRACKET:
+    
+    while current_bracket != meeted_bracket:
         token = lexer.next()
         if token == None:
             print("token was equal to none, whatever that means TODO: improve this error message")
             exit(1)
+        if token[0] == OP_OPEN_BRACKET:
+            meeted_bracket += 1
+        elif token[0] == OP_CLOSE_BRACKET:
+            meeted_bracket -= 1
         src += " " + str(token[1])
-    body = parse(Lexer(src, "TODO: change this source"))
+    lexer = Lexer(src, "TODO: change this source")
+    expr = parse(lexer)
+    while expr != EOBrack:
+        body.append(expr)
+        expr = parse(lexer)
     return condition, body
-        
+
+def parse_while(lexer):
+    global in_paren
+    global in_bracket
+    paren = lexer.next()
+    if paren[0] != OP_OPEN_PAREN:
+        f, l, c = paren[2] 
+        print(f"{f}:{l}:{c}: ERROR: after expected `(` after `while`, but got `{paren[1]}`")
+        exit(1)
+    in_paren += 1
+    condition = parse(lexer)
+    bracket = lexer.next()
+    if bracket[0] != OP_OPEN_BRACKET:
+        f, l, c = bracket[2] 
+        print(f"{f}:{l}:{c}: ERROR: after expected `%s` after `)`, but got `{bracket[1]}`" % "{")
+        exit(1)
+    
+    current_bracket = in_bracket
+    in_bracket += 1
+    meeted_bracket = in_bracket
+    body = []
+    token = lexer.next()
+    src = str(token[1])
+    
+    while current_bracket != meeted_bracket:
+        token = lexer.next()
+        if token == None:
+            print("token was equal to none, whatever that means TODO: improve this error message")
+            exit(1)
+        if token[0] == OP_OPEN_BRACKET:
+            meeted_bracket += 1
+        elif token[0] == OP_CLOSE_BRACKET:
+            meeted_bracket -= 1
+        src += " " + str(token[1])
+    lexer = Lexer(src, "TODO: change this source")
+    expr = parse(lexer)
+    while expr != EOBrack:
+        body.append(expr)
+        expr = parse(lexer)
+    return condition, body
+
+    
+
+
 in_paren = 0
 in_bracket  = 0
     
@@ -220,18 +288,20 @@ def parse(lexer):
     global in_bracket
     ast = 0;
     lvalue = parse_primary(lexer)
-
-    assert COUNT_OPS == 11, "Op count changed in parse()"
+    assert COUNT_OPS == 13, "Op count changed in parse()"
     if lvalue == EOF:
         return EOF
     if lvalue[0] == OP_PUT:
         rvalue = parse(lexer)
         return put(rvalue)
     elif lvalue[0] == OP_SEMICOLON:
-        return None
+        return
     elif lvalue[0] == OP_IF:
         cond, body = parse_if(lexer)
-        return iff(cond, body)
+        return if_(cond, body)
+    elif lvalue[0] == OP_WHILE:
+        cond, body = parse_while(lexer)
+        return while_(cond, body)
     elif lvalue[0] == OP_OPEN_PAREN:
         # TODO: implement OPEN_PAREN
         # in_paren += 1
@@ -253,6 +323,7 @@ def parse(lexer):
             f, l, c = lvalue[2] 
             print("%s:%s:%s: ERROR: no bracket before `}`" % (str(f), str(l), str(c)))
             exit(1)
+        return EOBrack
     else:
         op_token = lexer.next()
         if op_token != None:
@@ -268,6 +339,9 @@ def parse(lexer):
             elif op_token[0] == OP_EQUAL:
                 rvalue = parse(lexer)
                 return equal(lvalue, rvalue)
+            elif op_token[0] == OP_GT:
+                rvalue = parse(lexer)
+                return gt(lvalue, rvalue)
             elif op_token[0] == OP_OPEN_PAREN:
                 # @TODO: implement OPEN_PAREN
                 # in_paren += 1
@@ -291,6 +365,7 @@ def parse(lexer):
                     f, l, c = lvalue[2] 
                     print(f"{f}:{l}:{c}: ERROR: no bracket before " + "`}`")
                     exit(1)
+                return EOBrack
             elif op_token[0] == OP_SEMICOLON:
                 # return the entier parsed AST
                 pass
@@ -308,7 +383,7 @@ def load_program_from_file(prog_path):
     lexer = Lexer(f.read(), prog_path)
     while expr != EOF:
         expr = parse(lexer)
-        program.append(expr)        
+        program.append(expr)
     return program
     
 var_dict = {}
@@ -317,8 +392,9 @@ def simulate_program(program):
     """Simulate the program."""
     global var_dict
     
-    assert COUNT_OPS == 11, "Op count changed in simulate_program()"
+    assert COUNT_OPS == 13, "Op count changed in simulate_program()"
     for op in program:
+    
         if op == EOF:
             exit(0)
         if op[0] == OP_ASSIGN:
@@ -359,6 +435,18 @@ def simulate_program(program):
                 var2 = op[2][1]
             res = 1 if var1 == var2 else 0
             return res
+        
+        elif op[0] == OP_GT:
+            if type(op[1][1]) == str:
+                var1 = var_dict[op[1][1]]
+            else:
+                var1 = op[1][1]
+            if type(op[2][1]) == str:
+                var2 = var_dict[op[2][1]]
+            else:
+                var2 = op[2][1]
+            res = 1 if var1 > var2 else 0
+            return res
         elif op[0] == OP_PUT:
             if type(op[1][1]) == str:
                 var = var_dict[op[1][1]]
@@ -368,9 +456,14 @@ def simulate_program(program):
         elif op[0] == OP_IF:
             cond = simulate_program([op[1]])
             if cond != 0:
-                simulate_program([op[2]])
-            
-            
+                simulate_program(op[2])
+        
+        elif op[0] == OP_WHILE:
+            cond = simulate_program([op[1]])
+            while cond != 0:
+                simulate_program(op[2])
+                cond = simulate_program([op[1]])
+                
         elif op[0] == OP_OPEN_PAREN:
             assert False, "TODO: Not implemented yet"
         elif op[0] == OP_CLOSE_PAREN:
@@ -382,192 +475,220 @@ def simulate_program(program):
 
             
         else:
-            print(op)
+            print(op, "is unreachable")
             assert False, "unreachable"
 
-esp_add = 0
+rbp_sub = 0
+addr_num = 0
+
+f = open("output.asm", "w")
 def compile_program(file_name, program, rec = False):
     """Open a file and write assembly code in it."""
-    global esp_add
+    global rbp_sub
     global var_dict
+    global f
+    global addr_num
 
-    if rec:
-        mode = "a"
-    else:
-        mode = "w"
-
-    with open("output.asm", mode) as f:
-        if not rec:
-            f.write("BITS 64\n")
-            f.write("%define SYS_EXIT 60\n")
-            f.write("segment .text\n")
-            f.write("global _start\n")
-            f.write("put:\n")
-            f.write("        push    rbp\n")
-            f.write("        mov     rbp, rsp\n")
-            f.write("        sub     rsp, 64\n")
-            f.write("        mov     QWORD [rbp-56], rdi\n")
-            f.write("        mov     DWORD [rbp-4], 1\n")
-            f.write("        mov     eax, DWORD [rbp-4]\n")
-            f.write("        cdqe\n")
-            f.write("        mov     edx, 32\n")
-            f.write("        sub     rdx, rax\n")
-            f.write("        mov     BYTE [rbp-48+rdx], 10\n")
-            f.write(".L2:\n")
-            f.write("        mov     rcx, QWORD [rbp-56]\n")
-            f.write("        mov     rdx, 7378697629483820647\n")
-            f.write("        mov     rax, rcx\n")
-            f.write("        imul    rdx\n")
-            f.write("        sar     rdx, 2\n")
-            f.write("        mov     rax, rcx\n")
-            f.write("        sar     rax, 63\n")
-            f.write("        sub     rdx, rax\n")
-            f.write("        mov     rax, rdx\n")
-            f.write("        sal     rax, 2\n")
-            f.write("        add     rax, rdx\n")
-            f.write("        add     rax, rax\n")
-            f.write("        sub     rcx, rax\n")
-            f.write("        mov     rdx, rcx\n")
-            f.write("        mov     eax, edx\n")
-            f.write("        lea     ecx, [rax+48]\n")
-            f.write("        mov     eax, DWORD [rbp-4]\n")
-            f.write("        lea     edx, [rax+1]\n")
-            f.write("        mov     DWORD [rbp-4], edx\n")
-            f.write("        cdqe\n")
-            f.write("        mov     edx, 31\n")
-            f.write("        sub     rdx, rax\n")
-            f.write("        mov     eax, ecx\n")
-            f.write("        mov     BYTE [rbp-48+rdx], al\n")
-            f.write("        mov     rcx, QWORD [rbp-56]\n")
-            f.write("        mov     rdx, 7378697629483820647\n")
-            f.write("        mov     rax, rcx\n")
-            f.write("        imul    rdx\n")
-            f.write("        mov     rax, rdx\n")
-            f.write("        sar     rax, 2\n")
-            f.write("        sar     rcx, 63\n")
-            f.write("        mov     rdx, rcx\n")
-            f.write("        sub     rax, rdx\n")
-            f.write("        mov     QWORD [rbp-56], rax\n")
-            f.write("        cmp     QWORD [rbp-56], 0\n")
-            f.write("        jg      .L2\n")
-            f.write("        mov     eax, DWORD [rbp-4]\n")
-            f.write("        cdqe\n")
-            f.write("        mov     edx, DWORD [rbp-4]\n")
-            f.write("        movsx   rdx, edx\n")
-            f.write("        mov     ecx, 32\n")
-            f.write("        sub     rcx, rdx\n")
-            f.write("        lea     rdx, [rbp-48]\n")
-            f.write("        add     rcx, rdx\n")
-            f.write("        mov     rdx, rax\n")
-            f.write("        mov     rsi, rcx\n")
-            f.write("        mov     edi, 1\n")
-            f.write("        mov     rax, 1\n")
+    if not rec:
+        f.write("BITS 64\n")
+        f.write("%define SYS_EXIT 60\n")
+        f.write("segment .text\n")
+        f.write("global _start\n")
+        f.write("put:\n")
+        f.write("        push    rbp\n")
+        f.write("        mov     rbp, rsp\n")
+        f.write("        sub     rsp, 64\n")
+        f.write("        mov     QWORD [rbp-56], rdi\n")
+        f.write("        mov     DWORD [rbp-4], 1\n")
+        f.write("        mov     eax, DWORD [rbp-4]\n")
+        f.write("        cdqe\n")
+        f.write("        mov     edx, 32\n")
+        f.write("        sub     rdx, rax\n")
+        f.write("        mov     BYTE [rbp-48+rdx], 10\n")
+        f.write(".L2:\n")
+        f.write("        mov     rcx, QWORD [rbp-56]\n")
+        f.write("        mov     rdx, 7378697629483820647\n")
+        f.write("        mov     rax, rcx\n")
+        f.write("        imul    rdx\n")
+        f.write("        sar     rdx, 2\n")
+        f.write("        mov     rax, rcx\n")
+        f.write("        sar     rax, 63\n")
+        f.write("        sub     rdx, rax\n")
+        f.write("        mov     rax, rdx\n")
+        f.write("        sal     rax, 2\n")
+        f.write("        add     rax, rdx\n")
+        f.write("        add     rax, rax\n")
+        f.write("        sub     rcx, rax\n")
+        f.write("        mov     rdx, rcx\n")
+        f.write("        mov     eax, edx\n")
+        f.write("        lea     ecx, [rax+48]\n")
+        f.write("        mov     eax, DWORD [rbp-4]\n")
+        f.write("        lea     edx, [rax+1]\n")
+        f.write("        mov     DWORD [rbp-4], edx\n")
+        f.write("        cdqe\n")
+        f.write("        mov     edx, 31\n")
+        f.write("        sub     rdx, rax\n")
+        f.write("        mov     eax, ecx\n")
+        f.write("        mov     BYTE [rbp-48+rdx], al\n")
+        f.write("        mov     rcx, QWORD [rbp-56]\n")
+        f.write("        mov     rdx, 7378697629483820647\n")
+        f.write("        mov     rax, rcx\n")
+        f.write("        imul    rdx\n")
+        f.write("        mov     rax, rdx\n")
+        f.write("        sar     rax, 2\n")
+        f.write("        sar     rcx, 63\n")
+        f.write("        mov     rdx, rcx\n")
+        f.write("        sub     rax, rdx\n")
+        f.write("        mov     QWORD [rbp-56], rax\n")
+        f.write("        cmp     QWORD [rbp-56], 0\n")
+        f.write("        jg      .L2\n")
+        f.write("        mov     eax, DWORD [rbp-4]\n")
+        f.write("        cdqe\n")
+        f.write("        mov     edx, DWORD [rbp-4]\n")
+        f.write("        movsxd  rdx, DWORD edx\n")
+        f.write("        mov     ecx, 32\n")
+        f.write("        sub     rcx, rdx\n")
+        f.write("        lea     rdx, [rbp-48]\n")
+        f.write("        add     rcx, rdx\n")
+        f.write("        mov     rdx, rax\n")
+        f.write("        mov     rsi, rcx\n")
+        f.write("        mov     edi, 1\n")
+        f.write("        mov     rax, 1\n")
+        f.write("        syscall\n")
+        f.write("        nop\n")
+        f.write("        leave\n")
+        f.write("        ret\n")
+        f.write("main:\n")
+        f.write("        push    rbp\n")
+        f.write("        mov     rbp, rsp\n")
+        f.write("        sub     rsp, 16\n")
+    
+    assert COUNT_OPS == 13, "Op count changed in compile_program()"
+    for op in program:
+        addr_num += 1
+        ip = addr_num
+    
+        if op == EOF:
+            f.close()
+            f = open("output.asm", "a")    
+            f.write("        mov rax, SYS_EXIT\n")
+            f.write("        mov rdi, 0\n")
             f.write("        syscall\n")
-            f.write("        nop\n")
-            f.write("        leave\n")
-            f.write("        ret\n")
-            f.write("main:\n")
-            f.write("        push    rbp\n")
-            f.write("        mov     rbp, rsp\n")
-            f.write("        sub     rsp, 16\n")
-        
-        assert COUNT_OPS == 11, "Op count changed in compile_program()"
-        for ip in range(len(program)):
-            op = program[ip]
-
-            if op == EOF:
-                pass
-            elif op[0] == OP_ASSIGN:
-                tmp = op[2][1]
-                if type(op[2][1]) == tuple:
-                    tmp = [op[2]]
-                    string = compile_program(file_name, tmp)
-                    f.write(string)
-                    tmp = "rax"
-                esp_add += 8
-                var_dict[op[1][1]] = esp_add 
-                f.write( "        ;; -- assign %s -- \n" % op[1][1])
-                f.write( " ")
-                f.write(f"        mov     QWORD [rbp - {esp_add}], {tmp}\n")
-                    
-            elif op[0] == OP_PLUS:
-                if type(op[1][1]) == str:
-                    var1 = "QWORD [rbp - " + str(var_dict[op[1][1]]) + "]"
-                else:
-                    var1 = str(op[1][1])
-                if type(op[2][1]) == str:
-                    var2 = "QWORD [rbp - " + str(var_dict[op[2][1]])+ "]"
-                else:
-                    var2 = str(op[2][1])
-                string  = "        ;;-- plus --\n"
-                string += "        mov     rax, %s\n" % var1
-                string += "        mov     rbx, %s\n" % var2
-                string += "        add     rax, rbx\n"
-                return string
-            
-            elif op[0] == OP_MINUS:
-                if type(op[1][1]) == str:
-                    var1 = "QWORD [rbp - " + str(var_dict[op[1][1]]) + "]"
-                else:
-                    var1 = str(op[1][1])
-                if type(op[2][1]) == str:
-                    var2 = "QWORD [rbp - " + str(var_dict[op[2][1]])+ "]"
-                else:
-                    var2 = str(op[2][1])
-                string  = "        ;;-- minus --\n"
-                string += "        mov     rax, %s\n" % var1
-                string += "        mov     rbx, %s\n" % var2
-                string += "        sub     rax, rbx\n"
-                return string
-
-            elif op[0] == OP_EQUAL:
-                if type(op[1][1]) == str:
-                    var1 = "QWORD [rbp - " + str(var_dict[op[1][1]]) + "]"
-                else:
-                    var1 = str(op[1][1])
-                if type(op[2][1]) == str:
-                    var2 = "QWORD [rbp - " + str(var_dict[op[2][1]])+ "]"
-                else:
-                    var2 = str(op[2][1])
-                string  = "        ;;-- equal --\n"
-                string += "        mov     rax, %s\n" % var1
-                string += "        cmp     rax, %s\n" % var2
-                string += "        sete    al      \n"
-                string += "        movzx   rax, al\n"
-                return string
-            
-            elif op[0] == OP_PUT:
-                if type(op[1][1]) == str:
-                    var = "QWORD [rbp - " + str(var_dict[op[1][1]]) + "]"
-                else:
-                    var = str(op[1][1])
-                print("put")
-                f.write("        ;; -- put --\n")
-                f.write("        mov     rdi, %s\n" % var)
-                f.write("        call    put\n")
-
-            elif op[0] == OP_IF:
-                f.write("        ;; -- if --\n")
-                cond = compile_program(file_name, [op[1]])
-                f.write(cond)
-                f.write("        test    rax, rax\n")
-                f.write("        jz      addr_%d\n" % ip)
-                f.write("addr_%d:\n" % ip)
-                f.close()
-                compile_program(file_name, [op[2]], True)
-                return
+            f.write("_start:\n")
+            f.write("        call main\n")
+            f.close()
+            return
+        elif op[0] == OP_ASSIGN:
+            tmp = op[2][1]
+            if type(op[2][1]) == tuple:
+                tmp = [op[2]]
+                string = compile_program(file_name, tmp, rec = True)
+                f.write(string)
+                tmp = "rax"
+            if not op[1][1] in var_dict:    
+                rbp_sub += 8 #this is increased during reassignment
+                var_dict[op[1][1]] = rbp_sub
+            f.write( "       ;; -- assign %s -- \n" % op[1][1])
+            f.write( " ")
+            f.write(f"       mov     QWORD [rsp + {var_dict[op[1][1]]}], {tmp}\n")
+                
+        elif op[0] == OP_PLUS:
+            if type(op[1][1]) == str:
+                var1 = "QWORD [rsp + " + str(var_dict[op[1][1]]) + "]"
             else:
-                print(op)
-                assert False, "unreachable"
-    f.close()
-    f = open("output.asm", "a")    
-    f.write("        mov rax, SYS_EXIT\n")
-    f.write("        mov rdi, 1\n")
-    f.write("        syscall\n")
-    f.write("_start:\n")
-    f.write("        call main\n")
-    f.close()
-    return
+                var1 = str(op[1][1])
+            if type(op[2][1]) == str:
+                var2 = "QWORD [rsp + " + str(var_dict[op[2][1]])+ "]"
+            else:
+                var2 = str(op[2][1])
+            string  = "        ;;-- plus --\n"
+            string += "        mov     rax, %s\n" % var1
+            string += "        mov     rbx, %s\n" % var2
+            string += "        add     rax, rbx\n"
+            return string
+        
+        elif op[0] == OP_MINUS:
+            if type(op[1][1]) == str:
+                var1 = "QWORD [rsp + " + str(var_dict[op[1][1]]) + "]"
+            else:
+                var1 = str(op[1][1])
+            if type(op[2][1]) == str:
+                var2 = "QWORD [rsp + " + str(var_dict[op[2][1]])+ "]"
+            else:
+                var2 = str(op[2][1])
+            string  = "        ;;-- minus --\n"
+            string += "        mov     rax, %s\n" % var1
+            string += "        mov     rbx, %s\n" % var2
+            string += "        sub     rax, rbx\n"
+            return string
+
+        elif op[0] == OP_EQUAL:
+            if type(op[1][1]) == str:
+                var1 = "QWORD [rsp + " + str(var_dict[op[1][1]]) + "]"
+            else:
+                var1 = str(op[1][1])
+            if type(op[2][1]) == str:
+                var2 = "QWORD [rsp + " + str(var_dict[op[2][1]])+ "]"
+            else:
+                var2 = str(op[2][1])
+            string  = "        ;;-- equal --\n"
+            string += "        mov     rax, %s\n" % var1
+            string += "        cmp     rax, %s\n" % var2
+            string += "        sete    al      \n"
+            string += "        movzx   rax, al\n"
+            return string
+    
+        elif op[0] == OP_GT:
+            if type(op[1][1]) == str:
+                var1 = "QWORD [rsp + " + str(var_dict[op[1][1]]) + "]"
+            else:
+                var1 = str(op[1][1])
+            if type(op[2][1]) == str:
+                var2 = "QWORD [rsp + " + str(var_dict[op[2][1]])+ "]"
+            else:
+                var2 = str(op[2][1])
+            string  = "        ;;-- gt --\n"
+            string += "        mov     rax, %s\n" % var1
+            string += "        cmp     rax, %s\n" % var2
+            string += "        setg    al      \n"
+            string += "        movzx   rax, al\n"
+            return string
+        
+        elif op[0] == OP_PUT:
+            if type(op[1][1]) == str:
+                var = "QWORD [rsp + " + str(var_dict[op[1][1]]) + "]"
+            else:
+                var = str(op[1][1])
+            #TODO: let put handle expression
+            f.write("        ;; -- put %s --\n" % op[1][1])
+            f.write("        mov     rdi, %s\n" % var)
+            f.write("        call    put\n")
+
+        elif op[0] == OP_IF:
+            f.write("        ;; -- if --\n")
+            cond = compile_program(file_name, [op[1]], rec = True)
+            tmp_ip = ip
+            f.write(cond)
+            f.write("        and     rax, rax\n")
+            f.write("        jz      addr_%d\n" % tmp_ip)
+            f.write("addr_%d:\n" % tmp_ip)
+            compile_program(file_name, op[2], True)
+            
+        elif op[0] == OP_WHILE:
+            f.write('        ;; -- while --\n')
+            tmp_ip = ip
+            f.write("        jmp addr_%d\n" % tmp_ip)
+            f.write("addr_%d:\n" % (tmp_ip+1))
+            compile_program(file_name, op[2], rec = True)
+            f.write("addr_%d:\n" % tmp_ip)
+            cond = compile_program(file_name, [op[1]], rec = True)
+            f.write(cond)
+            f.write("        cmp   rax, 0\n")
+            f.write("        jne   addr_%d\n" % (tmp_ip+1))
+            
+        else:
+            print(op, "is unreachable")
+            assert False, "unreachable"
 
 
 def usage():
@@ -590,15 +711,17 @@ def main():
         
     subcommand, argv = shift(argv)
     prg_path,   argv = shift(argv)
-    
+
+    print("[INFO] Started lexing and parsing")
     program = load_program_from_file(prg_path)
 
+    print("[INFO] Started generating")
     if subcommand == "sim":
         simulate_program(program)
         
     elif subcommand == "com":
         compile_program("output.asm", program)
-        run_and_write(["nasm", "-felf64", "output.asm"])
+        run_and_write(["yasm", "-felf64", "output.asm"])
         run_and_write(["ld", "-o", "output", "output.o"])
 
     else:
