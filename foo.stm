@@ -1,22 +1,9 @@
-
+// LS
 
 foo := 10;
-
+foo := foo * 2;
 
 while (foo > 0) {
       foo := foo -1;
       put foo;
-}
-
-i := 0;
-while (10 > i) {
-      i := i + 1;
-      j := 0;
-      put i;
-
-      while (10 > j) {
-      	    j := j + 1;
-      	    put j;
-      }
-      
 }

@@ -22,6 +22,8 @@ def iota(reset = False):
 OP_ASSIGN = iota(True)
 OP_PLUS   = iota()
 OP_MINUS  = iota()
+OP_SLASH  = iota()
+OP_MULT   = iota()
 OP_PUT    = iota()
 OP_EQUAL  = iota()
 OP_GT     = iota()
@@ -43,7 +45,7 @@ EOF = iota()
 EOBrack = iota()
 
 ### OPERATIONS #####
-assert COUNT_OPS == 13, "number of expected op in operations"
+assert COUNT_OPS == 15, "number of expected op in operations"
 
 def assign(x, y):
     return (OP_ASSIGN, x, y)
@@ -54,8 +56,12 @@ def plus(x, y):
 def minus(x, y):
     return (OP_MINUS, x, y)
 
+def mult(x, y):
+    return (OP_MULT, x, y)
+
 def equal(x, y):
     return(OP_EQUAL, x, y)
+
 def gt(x, y):
     return(OP_GT, x, y)
 
@@ -96,7 +102,7 @@ class Lexer:
         global lexer_line
         global lexer_col
 
-        assert COUNT_OPS == 13, "Op count changed in Lexer().next()"
+        assert COUNT_OPS == 15, "Op count changed in Lexer().next()"
         
         scol, sline, self.src = left_strip(self.src)
         lexer_line += sline
@@ -118,6 +124,10 @@ class Lexer:
             self.src = self.src[1:]
             lexer_col += 1
             return (OP_MINUS, '-', pos)
+        elif self.src[0] == '*':
+            self.src = self.src[1:]
+            lexer_col += 1
+            return (OP_MULT, '*', pos)
         elif self.src[0] == '(':
             self.src = self.src[1:]
             lexer_col += 1
@@ -147,6 +157,16 @@ class Lexer:
             self.src = self.src[1:]
             lexer_col += 1
             return (OP_SEMICOLON, ';', pos)
+        elif self.src[0] == '/':
+            if self.src[1] == '/':
+                i = 0
+                while self.src[i] != '\n':
+                    i+=1
+                lexer_line += 1
+                self.src = self.src[i:]
+                return self.next()
+            else:
+                assert False, "TODO, not implemented yet."
         elif self.src[0] == ':':
             if self.src[1] == '=':
                 self.src = self.src[2:]
@@ -198,7 +218,7 @@ def parse_primary(lexer):
     else:
         return EOF
     
-def parse_if(lexer):
+def parse_if(lexer, source):
     global in_paren
     global in_bracket
     paren = lexer.next()
@@ -207,7 +227,7 @@ def parse_if(lexer):
         print(f"{f}:{l}:{c}: ERROR: after expected `(` after `if`, but got `{paren[1]}`")
         exit(1)
     in_paren += 1
-    condition = parse(lexer)
+    condition = parse(lexer, source)
     bracket = lexer.next()
     if bracket[0] != OP_OPEN_BRACKET:
         f, l, c = bracket[2] 
@@ -230,14 +250,14 @@ def parse_if(lexer):
         elif token[0] == OP_CLOSE_BRACKET:
             meeted_bracket -= 1
         src += " " + str(token[1])
-    lexer = Lexer(src, "TODO: change this source")
-    expr = parse(lexer)
+    lexer = Lexer(src, source)
+    expr = parse(lexer, source)
     while expr != EOBrack:
         body.append(expr)
-        expr = parse(lexer)
+        expr = parse(lexer, source)
     return condition, body
 
-def parse_while(lexer):
+def parse_while(lexer, source):
     global in_paren
     global in_bracket
     paren = lexer.next()
@@ -246,7 +266,7 @@ def parse_while(lexer):
         print(f"{f}:{l}:{c}: ERROR: after expected `(` after `while`, but got `{paren[1]}`")
         exit(1)
     in_paren += 1
-    condition = parse(lexer)
+    condition = parse(lexer, source)
     bracket = lexer.next()
     if bracket[0] != OP_OPEN_BRACKET:
         f, l, c = bracket[2] 
@@ -270,11 +290,11 @@ def parse_while(lexer):
         elif token[0] == OP_CLOSE_BRACKET:
             meeted_bracket -= 1
         src += " " + str(token[1])
-    lexer = Lexer(src, "TODO: change this source")
-    expr = parse(lexer)
+    lexer = Lexer(src, source)
+    expr = parse(lexer, source)
     while expr != EOBrack:
         body.append(expr)
-        expr = parse(lexer)
+        expr = parse(lexer, source)
     return condition, body
 
     
@@ -283,24 +303,24 @@ def parse_while(lexer):
 in_paren = 0
 in_bracket  = 0
     
-def parse(lexer):
+def parse(lexer, source):
     global in_paren
     global in_bracket
     ast = 0;
     lvalue = parse_primary(lexer)
-    assert COUNT_OPS == 13, "Op count changed in parse()"
+    assert COUNT_OPS == 15, "Op count changed in parse()"
     if lvalue == EOF:
         return EOF
     if lvalue[0] == OP_PUT:
-        rvalue = parse(lexer)
+        rvalue = parse(lexer, source)
         return put(rvalue)
     elif lvalue[0] == OP_SEMICOLON:
         return
     elif lvalue[0] == OP_IF:
-        cond, body = parse_if(lexer)
+        cond, body = parse_if(lexer, source)
         return if_(cond, body)
     elif lvalue[0] == OP_WHILE:
-        cond, body = parse_while(lexer)
+        cond, body = parse_while(lexer, source)
         return while_(cond, body)
     elif lvalue[0] == OP_OPEN_PAREN:
         # TODO: implement OPEN_PAREN
@@ -328,19 +348,22 @@ def parse(lexer):
         op_token = lexer.next()
         if op_token != None:
             if op_token[0] == OP_PLUS:
-                rvalue = parse(lexer)
+                rvalue = parse(lexer, source)
                 return plus(lvalue, rvalue)
             elif op_token[0] == OP_MINUS:
-                rvalue = parse(lexer)
+                rvalue = parse(lexer, source)
                 return minus(lvalue, rvalue)
+            elif op_token[0] == OP_MULT:
+                rvalue = parse(lexer, source)
+                return mult(lvalue, rvalue)
             elif op_token[0] == OP_ASSIGN:
-                rvalue = parse(lexer)
+                rvalue = parse(lexer, source)
                 return assign(lvalue, rvalue)
             elif op_token[0] == OP_EQUAL:
-                rvalue = parse(lexer)
+                rvalue = parse(lexer, source)
                 return equal(lvalue, rvalue)
             elif op_token[0] == OP_GT:
-                rvalue = parse(lexer)
+                rvalue = parse(lexer, source)
                 return gt(lvalue, rvalue)
             elif op_token[0] == OP_OPEN_PAREN:
                 # @TODO: implement OPEN_PAREN
@@ -382,7 +405,7 @@ def load_program_from_file(prog_path):
     expr = 1
     lexer = Lexer(f.read(), prog_path)
     while expr != EOF:
-        expr = parse(lexer)
+        expr = parse(lexer, prog_path)
         program.append(expr)
     return program
     
@@ -392,7 +415,7 @@ def simulate_program(program):
     """Simulate the program."""
     global var_dict
     
-    assert COUNT_OPS == 13, "Op count changed in simulate_program()"
+    assert COUNT_OPS == 15, "Op count changed in simulate_program()"
     for op in program:
     
         if op == EOF:
@@ -424,6 +447,18 @@ def simulate_program(program):
             else:
                 var2 = op[2][1]
             return var1 - var2
+        
+        elif op[0] == OP_MULT:
+            if type(op[1][1]) == str:
+                var1 = var_dict[op[1][1]]
+            else:
+                var1 = op[1][1]
+            if type(op[2][1]) == str:
+                var2 = var_dict[op[2][1]]
+            else:
+                var2 = op[2][1]
+            return var1 * var2
+        
         elif op[0] == OP_EQUAL:
             if type(op[1][1]) == str:
                 var1 = var_dict[op[1][1]]
@@ -673,7 +708,7 @@ def compile_program(file_name, program, rec = False):
             f.write("        jz      addr_%d\n" % tmp_ip)
             f.write("addr_%d:\n" % tmp_ip)
             compile_program(file_name, op[2], True)
-            
+
         elif op[0] == OP_WHILE:
             f.write('        ;; -- while --\n')
             tmp_ip = ip
