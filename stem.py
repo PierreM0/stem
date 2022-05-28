@@ -1,17 +1,36 @@
 #! /usr/bin/python3
 import sys
 import subprocess
+from typing import List, Dict, Tuple, no_type_check
 
 
-def run_and_write(lst):
+POS = Tuple[str, int, int]
+Lexeme = Tuple[int, str | int, POS]
+
+
+class AST:
+    def __init__(self, op_type: int, left_side: 'AST' | Lexeme | None = None,
+                 right_side: 'AST' | Lexeme | List['AST | Lexeme'] | None = None):
+        self.op_type = op_type
+        self.right_side = right_side
+        self.left_side = left_side
+    def __repr__(self):
+        return f"[{self.op_type} | {self.left_side} | {self.right_side}]"
+
+Program = List[AST]
+
+
+def run_and_write(lst: List[str]) -> None:
     for el in lst:
         print(el, end=" ")
     print()
     subprocess.run(lst)
-    
+
+
 iota__ = -1
 
-def iota(reset = False):
+
+def iota(reset: bool = False) -> int:
     global iota__
     iota__ += 1
     if reset:
@@ -19,23 +38,22 @@ def iota(reset = False):
     return iota__
 
 
+Token = str
+
 OP_ASSIGN = iota(True)
-OP_PLUS   = iota()
-OP_MINUS  = iota()
-OP_SLASH  = iota()
-OP_MULT   = iota()
-OP_PUT    = iota()
-OP_EQUAL  = iota()
-OP_GT     = iota()
-
-OP_IF     = iota()
-OP_WHILE  = iota()
-OP_OPEN_BRACKET  = iota()
+OP_PLUS = iota()
+OP_MINUS = iota()
+OP_SLASH = iota()
+OP_MULT = iota()
+OP_PUT = iota()
+OP_EQUAL = iota()
+OP_GT = iota()
+OP_IF = iota()
+OP_WHILE = iota()
+OP_OPEN_BRACKET = iota()
 OP_CLOSE_BRACKET = iota()
-OP_OPEN_PAREN    = iota()
-OP_CLOSE_PAREN   = iota()
-
-
+OP_OPEN_PAREN = iota()
+OP_CLOSE_PAREN = iota()
 OP_SEMICOLON = iota()
 COUNT_OPS = iota()
 
@@ -44,124 +62,144 @@ INT = iota()
 EOF = iota()
 EOBrack = iota()
 
-### OPERATIONS #####
+# OPERATIONS #####
 assert COUNT_OPS == 15, "number of expected op in operations"
 
-def assign(x, y):
-    return (OP_ASSIGN, x, y)
 
-def plus(x, y):
-    return (OP_PLUS, x, y)
+def assign(x: AST | Lexeme, y: AST | Lexeme) -> AST:
+    return AST(OP_ASSIGN, x, y)
 
-def minus(x, y):
-    return (OP_MINUS, x, y)
 
-def mult(x, y):
-    return (OP_MULT, x, y)
+def plus(x: AST | Lexeme, y: AST | Lexeme) -> AST:
+    return AST(OP_PLUS, x, y)
 
-def equal(x, y):
-    return(OP_EQUAL, x, y)
 
-def gt(x, y):
-    return(OP_GT, x, y)
+def minus(x: AST | Lexeme, y: AST | Lexeme) -> AST:
+    return AST(OP_MINUS, x, y)
 
-def if_(cond, body):
-    return (OP_IF, cond, body)
 
-def while_(cond, body):
-    return (OP_WHILE, cond, body)
+def mult(x: AST | Lexeme, y: AST | Lexeme) -> AST:
+    return AST(OP_MULT, x, y)
 
-def put(x):
-    return(OP_PUT, x)
 
+def equal(x: AST | Lexeme, y: AST | Lexeme) -> AST:
+    return AST(OP_EQUAL, x, y)
+
+
+def gt(x: AST | Lexeme, y: AST | Lexeme) -> AST:
+    return AST(OP_GT, x, y)
+
+
+def if_(cond: AST | Lexeme, body: List[AST | Lexeme]) -> AST:
+    return AST(OP_IF, cond, body)
+
+
+def while_(cond: AST | Lexeme, body: List[AST | Lexeme]) -> AST:
+    return AST(OP_WHILE, cond, body)
+
+
+def put(x: AST | Lexeme) -> AST:
+    return AST(OP_PUT, x)
+
+
+def eof() -> AST:
+    return AST(EOF)
+
+
+def eobrack() -> AST:
+    return AST(EOBrack)
+
+def int_(x: Lexeme) -> AST:
+    return AST(INT, x)
+
+def var_(x: Lexeme) -> AST:
+    return AST(VAR, x)
 
 lexer_line = 0
-lexer_col  = 0
+lexer_col = 0
 
-def left_strip(string):
+
+def left_strip(string: str) -> tuple[int, int, str]:
     col = 0
     line = 0
-    while (col+line) < len(string) and string[col+line].isspace():
-        if string[col+line] == '\n':
-            line, col = line + 1 , 0
+    while (col + line) < len(string) and string[col + line].isspace():
+        if string[col + line] == '\n':
+            line, col = line + 1, 0
         else:
             col += 1
-    return (col, line, string[col+line:])
+    return col, line, string[col + line:]
 
 
-def crossreference_program(program):
-    return program
-    
 class Lexer:
 
-    def __init__(self, src, file_path):
+    def __init__(self, src: str, file_path: str):
         self.src = src
         self.file_path = file_path
-    
-    def next(self):
+
+    def next(self) -> Lexeme:
         global lexer_line
         global lexer_col
 
         assert COUNT_OPS == 15, "Op count changed in Lexer().next()"
-        
-        scol, sline, self.src = left_strip(self.src)
-        lexer_line += sline
-        if sline > 0:
-            lexer_col  = scol
+
+        saved_col, saved_line, self.src = left_strip(self.src)
+        lexer_line += saved_line
+        if saved_line > 0:
+            lexer_col = saved_col
         else:
-            lexer_col += scol
-        
+            lexer_col += saved_col
+
         pos = (self.file_path, lexer_line, lexer_col)
-        
+
         if len(self.src) == 0:
-            return None
-        
+            return EOF, "EOF", pos
+
         if self.src[0] == '+':
             self.src = self.src[1:]
             lexer_col += 1
-            return (OP_PLUS, '+', pos)
+            return OP_PLUS, '+', pos
         elif self.src[0] == '-':
             self.src = self.src[1:]
             lexer_col += 1
-            return (OP_MINUS, '-', pos)
+            return OP_MINUS, '-', pos
         elif self.src[0] == '*':
             self.src = self.src[1:]
             lexer_col += 1
-            return (OP_MULT, '*', pos)
+            return OP_MULT, '*', pos
         elif self.src[0] == '(':
             self.src = self.src[1:]
             lexer_col += 1
-            return (OP_OPEN_PAREN, '(', pos)
+            return OP_OPEN_PAREN, '(', pos
         elif self.src[0] == ')':
             self.src = self.src[1:]
             lexer_col += 1
-            return (OP_CLOSE_PAREN, ')', pos)
+            return OP_CLOSE_PAREN, ')', pos
 
         elif self.src[0] == '{':
             self.src = self.src[1:]
             lexer_col += 1
-            return (OP_OPEN_BRACKET, '{', pos)
+            return OP_OPEN_BRACKET, '{', pos
         elif self.src[0] == '}':
             self.src = self.src[1:]
             lexer_col += 1
-            return (OP_CLOSE_BRACKET, '}', pos)
+            return OP_CLOSE_BRACKET, '}', pos
         elif self.src[0] == '=':
             self.src = self.src[1:]
             lexer_col += 1
-            return (OP_EQUAL, '=', pos)
+            return OP_EQUAL, '=', pos
         elif self.src[0] == '>':
             self.src = self.src[1:]
             lexer_col += 1
-            return (OP_GT, '>', pos)
+            return OP_GT, '>', pos
         elif self.src[0] == ';':
             self.src = self.src[1:]
             lexer_col += 1
-            return (OP_SEMICOLON, ';', pos)
+            return OP_SEMICOLON, ';', pos
         elif self.src[0] == '/':
             if self.src[1] == '/':
                 i = 0
                 while self.src[i] != '\n':
-                    i+=1
+                    i += 1
                 lexer_line += 1
                 self.src = self.src[i:]
                 return self.next()
@@ -171,26 +209,27 @@ class Lexer:
             if self.src[1] == '=':
                 self.src = self.src[2:]
                 lexer_col += 2
-                return (OP_ASSIGN, ':=', pos)
+                return OP_ASSIGN, ':=', pos
             else:
-                print(f"\"{self.file_path}\":{lexer_line}:{lexer_col}: ERROR: `{self.src[0]}` is not a reconizable token")
+                print(f"\"{self.file_path}\":{lexer_line}:{lexer_col}: "
+                      f"ERROR: `{self.src[0]}` is not a recognizable token")
                 exit(1)
         elif self.src[0].isalpha():
             token = ""
             i = 0
             while i < len(self.src) and self.src[i].isalnum():
-                token += self.src[i] 
+                token += self.src[i]
                 i += 1
             self.src = self.src[len(token):]
             lexer_col += i
             if token == "put":
-                return (OP_PUT, token, pos)
+                return OP_PUT, token, pos
             if token == "if":
-                return (OP_IF, token, pos)
+                return OP_IF, token, pos
             if token == "while":
-                return (OP_WHILE, token, pos)
+                return OP_WHILE, token, pos
             else:
-                return (VAR, token, pos)
+                return VAR, token, pos
         elif self.src[0].isnumeric():
             token = ""
             i = 0
@@ -199,154 +238,146 @@ class Lexer:
                 i += 1
             self.src = self.src[len(token):]
             lexer_col += i
-            return (INT, int(token), pos)
-        elif self.src[0] == '\n':
-            lexer_col = 0
-            lexer_line += 1
-        elif self.src[0].isspace() and self.src[0] != '\n':
-            self.src = self.src[1:]
-            lexer_col += 1
+            return INT, int(token), pos
         else:
-            print(f"\"{self.file_path}\":{lexer_line}:{lexer_col}: ERROR: `{self.src[0]}` is not a reconizable token")
+            print(f"\"{self.file_path}\":{lexer_line}:{lexer_col}: ERROR: `{self.src[0]}` is not a recognizable token")
             exit(1)
-        
+            return -1, "ERROR", pos
 
-def parse_primary(lexer):
-    token = lexer.next()
-    if token != None:
-        return token
-    else:
-        return EOF
-    
-def parse_if(lexer, source):
+
+def parse_primary(lexer: Lexer) -> Lexeme:
+    lexeme = lexer.next()
+    return lexeme
+
+
+def parse_if(lexer: Lexer, source: str) -> Tuple[AST, List[AST]]:
     global in_paren
     global in_bracket
     paren = lexer.next()
     if paren[0] != OP_OPEN_PAREN:
-        f, l, c = paren[2] 
-        print(f"{f}:{l}:{c}: ERROR: after expected `(` after `if`, but got `{paren[1]}`")
+        file, l, c = paren[2]
+        print(f"{file}:{l}:{c}: ERROR: after expected `(` after `if`, but got `{paren[1]}`")
         exit(1)
     in_paren += 1
     condition = parse(lexer, source)
     bracket = lexer.next()
     if bracket[0] != OP_OPEN_BRACKET:
-        f, l, c = bracket[2] 
-        print(f"{f}:{l}:{c}: ERROR: after expected `%s` after `)`, but got `{bracket[1]}`" % "{")
-        exit(1) 
+        file, l, c = bracket[2]
+        print(f"{file}:{l}:{c}: ERROR: after expected `%s` after `)`, but got `{bracket[1]}`" % "{")
+        exit(1)
     current_bracket = in_bracket
     in_bracket += 1
-    meeted_bracket = in_bracket
+    met_bracket = in_bracket
     body = []
     token = lexer.next()
     src = str(token[1])
-    
-    while current_bracket != meeted_bracket:
+
+    while current_bracket != met_bracket:
         token = lexer.next()
-        if token == None:
+        if token is None:
             print("token was equal to none, whatever that means TODO: improve this error message")
             exit(1)
         if token[0] == OP_OPEN_BRACKET:
-            meeted_bracket += 1
+            met_bracket += 1
         elif token[0] == OP_CLOSE_BRACKET:
-            meeted_bracket -= 1
+            met_bracket -= 1
         src += " " + str(token[1])
     lexer = Lexer(src, source)
     expr = parse(lexer, source)
-    while expr != EOBrack:
+    while expr.op_type != EOBrack:
         body.append(expr)
         expr = parse(lexer, source)
     return condition, body
 
-def parse_while(lexer, source):
+
+def parse_while(lexer: Lexer, source: str) -> Tuple[AST, List[AST]]:
     global in_paren
     global in_bracket
     paren = lexer.next()
     if paren[0] != OP_OPEN_PAREN:
-        f, l, c = paren[2] 
-        print(f"{f}:{l}:{c}: ERROR: after expected `(` after `while`, but got `{paren[1]}`")
+        file, l, c = paren[2]
+        print(f"{file}:{l}:{c}: ERROR: after expected `(` after `while`, but got `{paren[1]}`")
         exit(1)
     in_paren += 1
     condition = parse(lexer, source)
     bracket = lexer.next()
     if bracket[0] != OP_OPEN_BRACKET:
-        f, l, c = bracket[2] 
-        print(f"{f}:{l}:{c}: ERROR: after expected `%s` after `)`, but got `{bracket[1]}`" % "{")
+        file, l, c = bracket[2]
+        print(f"{file}:{l}:{c}: ERROR: after expected `%s` after `)`, but got `{bracket[1]}`" % "{")
         exit(1)
-    
+
     current_bracket = in_bracket
     in_bracket += 1
-    meeted_bracket = in_bracket
+    met_bracket = in_bracket
     body = []
     token = lexer.next()
     src = str(token[1])
-    
-    while current_bracket != meeted_bracket:
+
+    while current_bracket != met_bracket:
         token = lexer.next()
-        if token == None:
+        if token is None:
             print("token was equal to none, whatever that means TODO: improve this error message")
             exit(1)
         if token[0] == OP_OPEN_BRACKET:
-            meeted_bracket += 1
+            met_bracket += 1
         elif token[0] == OP_CLOSE_BRACKET:
-            meeted_bracket -= 1
+            met_bracket -= 1
         src += " " + str(token[1])
     lexer = Lexer(src, source)
     expr = parse(lexer, source)
-    while expr != EOBrack:
+    while expr.op_type != EOBrack:
         body.append(expr)
         expr = parse(lexer, source)
     return condition, body
-
-    
 
 
 in_paren = 0
-in_bracket  = 0
-    
-def parse(lexer, source):
+in_bracket = 0
+
+
+def parse(lexer: Lexer, source: str) -> AST:
     global in_paren
     global in_bracket
-    ast = 0;
     lvalue = parse_primary(lexer)
     assert COUNT_OPS == 15, "Op count changed in parse()"
-    if lvalue == EOF:
-        return EOF
+    if lvalue[0] == EOF:
+        return eof()
     if lvalue[0] == OP_PUT:
         rvalue = parse(lexer, source)
         return put(rvalue)
-    elif lvalue[0] == OP_SEMICOLON:
-        return
+    #    elif lvalue[0] == OP_SEMICOLON:
+    #        return semicolon()
     elif lvalue[0] == OP_IF:
         cond, body = parse_if(lexer, source)
-        return if_(cond, body)
+        return if_(cond, body)  # type: ignore
     elif lvalue[0] == OP_WHILE:
         cond, body = parse_while(lexer, source)
-        return while_(cond, body)
+        return while_(cond, body)  # type: ignore #TODO Change List[] with Sequence[]
     elif lvalue[0] == OP_OPEN_PAREN:
         # TODO: implement OPEN_PAREN
         # in_paren += 1
-         assert False, "TODO: Not implemented yet"
+        assert False, "TODO: Not implemented yet"
     elif lvalue[0] == OP_CLOSE_PAREN:
         if in_paren < 0:
-            f, l, c = lvalue[2] 
-            print(f"{f}:{l}:{c}: ERROR: no parenthesis before `)`")
+            file, l, c = lvalue[2]
+            print(f"{file}:{l}:{c}: ERROR: no parenthesis before `)`")
             exit(1)
         in_paren -= 1
-        return lvalue
+        pass
     elif lvalue[0] == OP_OPEN_BRACKET:
-        # TODO; implent OPEN_BRACKET
+        # TODO; implement OPEN_BRACKET
         in_bracket += 1
-        assert False, "TOD0: Not implemented yet"
+        assert False, "TODO: Not implemented yet"
     elif lvalue[0] == OP_CLOSE_BRACKET:
         in_bracket -= 1
         if in_bracket < 0:
-            f, l, c = lvalue[2] 
-            print("%s:%s:%s: ERROR: no bracket before `}`" % (str(f), str(l), str(c)))
+            file, l, c = lvalue[2]
+            print("%s:%s:%s: ERROR: no bracket before `}`" % (str(file), str(l), str(c)))
             exit(1)
-        return EOBrack
+        return eobrack()
     else:
         op_token = lexer.next()
-        if op_token != None:
+        if op_token is not None:
             if op_token[0] == OP_PLUS:
                 rvalue = parse(lexer, source)
                 return plus(lvalue, rvalue)
@@ -371,153 +402,60 @@ def parse(lexer, source):
                 assert False, "TODO: Not implemented yet"
             elif op_token[0] == OP_CLOSE_PAREN:
                 if in_paren < 0:
-                    f, l, c = lvalue[2] 
-                    print(f"{f}:{l}:{c}: ERROR: no parenthesis before `)`")
+                    file, l, c = lvalue[2]
+                    print(f"{file}:{l}:{c}: ERROR: no parenthesis before `)`")
                     exit(1)
                 in_paren -= 1
-                return lvalue
-
             elif op_token[0] == OP_OPEN_BRACKET:
                 # @TODO: implement OPEN_BRACKET
                 in_bracket += 1
 
-            
             elif op_token[0] == OP_CLOSE_BRACKET:
                 in_bracket -= 1
                 if in_bracket < 0:
-                    f, l, c = lvalue[2] 
-                    print(f"{f}:{l}:{c}: ERROR: no bracket before " + "`}`")
+                    file, l, c = lvalue[2]
+                    print(f"{file}:{l}:{c}: ERROR: no bracket before " + "`}`")
                     exit(1)
-                return EOBrack
+                return eobrack()
             elif op_token[0] == OP_SEMICOLON:
                 # return the entier parsed AST
                 pass
+            elif op_token[0] == EOF:
+                return eof()
             else:
-                
-                f, l, c = op_token[2]
-                print(f"./{f}:{l}:{c} ERROR: unexpected binary operation `{op_token[1]}`, the value before was `{lvalue[1]}`")
+
+                file, l, c = op_token[2]
+                print(
+                    f"./{file}:{l}:{c} ERROR: unexpected binary operation `{op_token[1]}`,"
+                    f" the value before was `{lvalue[1]}`, maybe you forgot `;` ?")
                 exit(1)
-        return (lvalue)
-        
-def load_program_from_file(prog_path):
-    f  = open(prog_path, "r")
+    if type(lvalue[1]) == str:  # type: ignore
+        return var_(lvalue)
+    else:
+        return int_(lvalue)
+
+
+def load_program_from_file(prog_path: str) -> Program:
+    file = open(prog_path, "r")
     program = []
-    expr = 1
-    lexer = Lexer(f.read(), prog_path)
-    while expr != EOF:
+    expr = AST(-1)
+    lexer = Lexer(file.read(), prog_path)
+    while expr.op_type != EOF:
         expr = parse(lexer, prog_path)
         program.append(expr)
     return program
-    
-var_dict = {}
-#### SIMULATE AND COMPILE PROGRAM #####
-def simulate_program(program):
-    """Simulate the program."""
-    global var_dict
-    
-    assert COUNT_OPS == 15, "Op count changed in simulate_program()"
-    for op in program:
-    
-        if op == EOF:
-            exit(0)
-        if op[0] == OP_ASSIGN:
-            tmp = op[2][1]
-            if type(op[2][1]) == tuple:
-                tmp = [op[2]]
-                tmp = simulate_program(tmp)
-            var_dict[op[1][1]] = tmp
-        elif op[0] == OP_PLUS:
-            if type(op[1][1]) == str:
-                var1 = var_dict[op[1][1]]
-            else:
-                var1 = op[1][1]
-            if type(op[2][1]) == str:
-                var2 = var_dict[op[2][1]]
-            else:
-                var2 = op[2][1]
-            return var1 + var2
-            
-        elif op[0] == OP_MINUS:
-            if type(op[1][1]) == str:
-                var1 = var_dict[op[1][1]]
-            else:
-                var1 = op[1][1]
-            if type(op[2][1]) == str:
-                var2 = var_dict[op[2][1]]
-            else:
-                var2 = op[2][1]
-            return var1 - var2
-        
-        elif op[0] == OP_MULT:
-            if type(op[1][1]) == str:
-                var1 = var_dict[op[1][1]]
-            else:
-                var1 = op[1][1]
-            if type(op[2][1]) == str:
-                var2 = var_dict[op[2][1]]
-            else:
-                var2 = op[2][1]
-            return var1 * var2
-        
-        elif op[0] == OP_EQUAL:
-            if type(op[1][1]) == str:
-                var1 = var_dict[op[1][1]]
-            else:
-                var1 = op[1][1]
-            if type(op[2][1]) == str:
-                var2 = var_dict[op[2][1]]
-            else:
-                var2 = op[2][1]
-            res = 1 if var1 == var2 else 0
-            return res
-        
-        elif op[0] == OP_GT:
-            if type(op[1][1]) == str:
-                var1 = var_dict[op[1][1]]
-            else:
-                var1 = op[1][1]
-            if type(op[2][1]) == str:
-                var2 = var_dict[op[2][1]]
-            else:
-                var2 = op[2][1]
-            res = 1 if var1 > var2 else 0
-            return res
-        elif op[0] == OP_PUT:
-            if type(op[1][1]) == str:
-                var = var_dict[op[1][1]]
-            else:
-                var = op[1][1]
-            print(var)
-        elif op[0] == OP_IF:
-            cond = simulate_program([op[1]])
-            if cond != 0:
-                simulate_program(op[2])
-        
-        elif op[0] == OP_WHILE:
-            cond = simulate_program([op[1]])
-            while cond != 0:
-                simulate_program(op[2])
-                cond = simulate_program([op[1]])
-                
-        elif op[0] == OP_OPEN_PAREN:
-            assert False, "TODO: Not implemented yet"
-        elif op[0] == OP_CLOSE_PAREN:
-            assert False, "TODO: Not implemented yet"
-        elif op[0] == OP_OPEN_BRACKET:
-            assert False, "TODO: Not implemented yet"
-        elif op[0] == OP_CLOSE_BRACKET:
-            assert False, "TODO: Not implemented yet"
 
-            
-        else:
-            print(op, "is unreachable")
-            assert False, "unreachable"
+
+var_dict: Dict[str, str] = {}
 
 rbp_sub = 0
 addr_num = 0
 
 f = open("output.asm", "w")
-def compile_program(file_name, program, rec = False):
+
+
+@no_type_check
+def compile_program(file_name, program, rec=False):
     """Open a file and write assembly code in it."""
     global rbp_sub
     global var_dict
@@ -597,15 +535,16 @@ def compile_program(file_name, program, rec = False):
         f.write("        push    rbp\n")
         f.write("        mov     rbp, rsp\n")
         f.write("        sub     rsp, 16\n")
-    
-    assert COUNT_OPS == 13, "Op count changed in compile_program()"
+
+
+    assert COUNT_OPS == 15, "Op count changed in compile_program()"
     for op in program:
         addr_num += 1
         ip = addr_num
-    
-        if op == EOF:
+
+        if op.op_type == EOF:
             f.close()
-            f = open("output.asm", "a")    
+            f = open("output.asm", "a")
             f.write("        mov rax, SYS_EXIT\n")
             f.write("        mov rdi, 0\n")
             f.write("        syscall\n")
@@ -613,156 +552,230 @@ def compile_program(file_name, program, rec = False):
             f.write("        call main\n")
             f.close()
             return
-        elif op[0] == OP_ASSIGN:
-            tmp = op[2][1]
-            if type(op[2][1]) == tuple:
-                tmp = [op[2]]
-                string = compile_program(file_name, tmp, rec = True)
+        elif op.op_type == OP_ASSIGN:
+            tmp = op.left_side
+            to_save = op.left_side[1]
+            if type(op.right_side) == AST:
+                if op.right_side.op_type in (INT, VAR):
+                    if op.right_side.op_type == INT:
+                        tmp = op.right_side.left_side[1]
+                    else:
+                        rhs = op.right_side.left_side[1]
+                        if not rhs in var_dict.keys():
+                            print("ERROR: can not assign value not introduced before") # TODO make this english
+                            exit(1)
+                        tmp = var_dict[rhs]
+                else:
+                    tmp = [op.right_side]
+                    string = compile_program(file_name, tmp, rec=True)
+                    f.write(string)
+                    tmp = "rax"
+            if not to_save in var_dict:
+                rbp_sub += 8  # this is increased during reassignment
+                var_dict[op.left_side[1]] = f"QWORD [rsp + {rbp_sub}]"
+            f.write("       ;; -- assign %s -- \n" % to_save)
+            f.write(" ")
+            f.write(f"       mov     {var_dict[to_save]}, {tmp}\n")
+
+        elif op.op_type == OP_PLUS:
+            if type(op.left_side) == tuple:
+                if type(op.left_side[1]) == str:
+                    var1 = var_dict[op.left_side[1]]
+                elif type(op.left_side[1]) == int:
+                    var1 = op.left_side[1]
+            else:
+                assert False, "unreachable"
+            if op.right_side.op_type == VAR:
+                var2 = var_dict[op.right_side.left_side[1]]
+            elif op.right_side.op_type == INT:
+                var2 = op.right_side.left_side[1]
+            else:
+                string = compile_program(file_name, [op.right_side], rec=True)
                 f.write(string)
-                tmp = "rax"
-            if not op[1][1] in var_dict:    
-                rbp_sub += 8 #this is increased during reassignment
-                var_dict[op[1][1]] = rbp_sub
-            f.write( "       ;; -- assign %s -- \n" % op[1][1])
-            f.write( " ")
-            f.write(f"       mov     QWORD [rsp + {var_dict[op[1][1]]}], {tmp}\n")
-                
-        elif op[0] == OP_PLUS:
-            if type(op[1][1]) == str:
-                var1 = "QWORD [rsp + " + str(var_dict[op[1][1]]) + "]"
-            else:
-                var1 = str(op[1][1])
-            if type(op[2][1]) == str:
-                var2 = "QWORD [rsp + " + str(var_dict[op[2][1]])+ "]"
-            else:
-                var2 = str(op[2][1])
-            string  = "        ;;-- plus --\n"
+                f.write("        mov     rcx, rax")
+                var2 = "rcx"
+            string = "        ;;-- plus --\n"
             string += "        mov     rax, %s\n" % var1
             string += "        mov     rbx, %s\n" % var2
             string += "        add     rax, rbx\n"
             return string
-        
-        elif op[0] == OP_MINUS:
-            if type(op[1][1]) == str:
-                var1 = "QWORD [rsp + " + str(var_dict[op[1][1]]) + "]"
+
+        elif op.op_type == OP_MINUS:
+            if type(op.left_side) == tuple:
+                if type(op.left_side[1]) == str:
+                    var1 = var_dict[op.left_side[1]]
+                elif type(op.left_side[1]) == int:
+                    var1 = op.left_side[1]
             else:
-                var1 = str(op[1][1])
-            if type(op[2][1]) == str:
-                var2 = "QWORD [rsp + " + str(var_dict[op[2][1]])+ "]"
+                assert False, "unreachable"
+            if op.right_side.op_type == VAR:
+                var2 = var_dict[op.right_side.left_side[1]]
+            elif op.right_side.op_type == INT:
+                var2 = op.right_side.left_side[1]
             else:
-                var2 = str(op[2][1])
-            string  = "        ;;-- minus --\n"
+                string = compile_program(file_name, [op.right_side], rec=True)
+                f.write(string)
+                f.write("        mov     rcx, rax")
+                var2 = "rcx"
+            string = "        ;;-- minus --\n"
             string += "        mov     rax, %s\n" % var1
             string += "        mov     rbx, %s\n" % var2
             string += "        sub     rax, rbx\n"
             return string
 
-        elif op[0] == OP_EQUAL:
-            if type(op[1][1]) == str:
-                var1 = "QWORD [rsp + " + str(var_dict[op[1][1]]) + "]"
+        elif op.op_type == OP_MULT:
+            if type(op.left_side) == tuple:
+                if type(op.left_side[1]) == str:
+                    var1 = var_dict[op.left_side[1]]
+                elif type(op.left_side[1]) == int:
+                    var1 = op.left_side[1]
             else:
-                var1 = str(op[1][1])
-            if type(op[2][1]) == str:
-                var2 = "QWORD [rsp + " + str(var_dict[op[2][1]])+ "]"
+                assert False, "unreachable"
+            if op.right_side.op_type == VAR:
+                var2 = var_dict[op.right_side.left_side[1]]
+            elif op.right_side.op_type == INT:
+                var2 = op.right_side.left_side[1]
             else:
-                var2 = str(op[2][1])
-            string  = "        ;;-- equal --\n"
+                string = compile_program(file_name, [op.right_side], rec=True)
+                f.write(string)
+                f.write("        mov     rcx, rax")
+                var2 = "rcx"
+
+            string = "        ;;-- mult --\n"
+            string += "        mov     rax, %s\n" % var1
+            string += "        mov     rbx, %s\n" % var2
+            string += "        mul     rbx\n"
+            return string
+
+        elif op.op_type == OP_EQUAL:
+            if type(op.left_side) == tuple:
+                if type(op.left_side[1]) == str:
+                    var1 = var_dict[op.left_side[1]]
+                elif type(op.left_side[1]) == int:
+                    var1 = op.left_side[1]
+            else:
+                assert False, "unreachable"
+            if op.right_side.op_type == VAR:
+                var2 = var_dict[op.right_side.left_side[1]]
+            elif op.right_side.op_type == INT:
+                var2 = op.right_side.left_side[1]
+            else:
+                string = compile_program(file_name, [op.right_side], rec=True)
+                f.write(string)
+                f.write("        mov     rcx, rax")
+                var2 = "rcx"
+
+            string = "        ;;-- equal --\n"
             string += "        mov     rax, %s\n" % var1
             string += "        cmp     rax, %s\n" % var2
             string += "        sete    al      \n"
             string += "        movzx   rax, al\n"
             return string
-    
-        elif op[0] == OP_GT:
-            if type(op[1][1]) == str:
-                var1 = "QWORD [rsp + " + str(var_dict[op[1][1]]) + "]"
+
+        elif op.op_type == OP_GT:
+            if type(op.left_side) == tuple:
+                if type(op.left_side[1]) == str:
+                    var1 = var_dict[op.left_side[1]]
+                else type(op.left_side[1]) == int:
+                    var1 = op.left_side[1]
             else:
-                var1 = str(op[1][1])
-            if type(op[2][1]) == str:
-                var2 = "QWORD [rsp + " + str(var_dict[op[2][1]])+ "]"
+                assert False, "unreachable"
+            if op.right_side.op_type == VAR:
+                var2 = var_dict[op.right_side.left_side[1]]
+            elif op.right_side.op_type == INT:
+                var2 = op.right_side.left_side[1]
             else:
-                var2 = str(op[2][1])
-            string  = "        ;;-- gt --\n"
+                string = compile_program(file_name, [op.right_side], rec=True)
+                f.write(string)
+                f.write("        mov     rcx, rax")
+                var2 = "rcx"
+
+            string = "        ;;-- gt --\n"
             string += "        mov     rax, %s\n" % var1
             string += "        cmp     rax, %s\n" % var2
             string += "        setg    al      \n"
             string += "        movzx   rax, al\n"
             return string
-        
-        elif op[0] == OP_PUT:
-            if type(op[1][1]) == str:
-                var = "QWORD [rsp + " + str(var_dict[op[1][1]]) + "]"
+
+
+        elif op.op_type == OP_PUT:
+            if op.left_side.op_type == VAR:
+                var = var_dict[op.left_side.left_side[1]]
+            elif op.left_side.op_type == INT:
+                var = op.left_side.left_side[1]
             else:
-                var = str(op[1][1])
-            #TODO: let put handle expression
-            f.write("        ;; -- put %s --\n" % op[1][1])
+                string = compile_program(file_name, [op.left_side], rec=True)
+                f.write(string)
+                f.write("        mov     rcx, rax")
+                var = "rcx"
+            f.write("        ;; -- put %s --\n" % op.left_side)
             f.write("        mov     rdi, %s\n" % var)
             f.write("        call    put\n")
 
-        elif op[0] == OP_IF:
+        elif op.op_type == OP_IF:
             f.write("        ;; -- if --\n")
-            cond = compile_program(file_name, [op[1]], rec = True)
+            cond = compile_program(file_name, [op.left_side], rec=True)
             tmp_ip = ip
             f.write(cond)
             f.write("        and     rax, rax\n")
             f.write("        jz      addr_%d\n" % tmp_ip)
             f.write("addr_%d:\n" % tmp_ip)
-            compile_program(file_name, op[2], True)
+            compile_program(file_name, op.right_side, True)
 
-        elif op[0] == OP_WHILE:
+        elif op.op_type == OP_WHILE:
             f.write('        ;; -- while --\n')
             tmp_ip = ip
             f.write("        jmp addr_%d\n" % tmp_ip)
-            f.write("addr_%d:\n" % (tmp_ip+1))
-            compile_program(file_name, op[2], rec = True)
+            f.write("addr_%d:\n" % (tmp_ip + 1))
+            compile_program(file_name, op.right_side, rec=True)
             f.write("addr_%d:\n" % tmp_ip)
-            cond = compile_program(file_name, [op[1]], rec = True)
+            cond = compile_program(file_name, [op.left_side], rec=True)
             f.write(cond)
             f.write("        cmp   rax, 0\n")
-            f.write("        jne   addr_%d\n" % (tmp_ip+1))
-            
+            f.write("        jne   addr_%d\n" % (tmp_ip + 1))
+
         else:
             print(op, "is unreachable")
             assert False, "unreachable"
 
 
-def usage():
+def usage() -> None:
     print("ERROR: usage ./stem.py [SUBCOMMAND] <program>")
     print("SUBCOMMANDS:")
     print("    com: compile the program")
     print("    sim: simulate the program")
 
-def shift(lst):
-    return (lst[0], lst[1:])
 
-def main():
+def shift(lst: List[str]) -> Tuple[str, List[str]]:
+    return lst[0], lst[1:]
 
+
+def main() -> None:
     argv = sys.argv
     assert len(argv) > 1
     prg_name, argv = shift(argv)
     if len(argv) < 1:
         usage()
         exit(1)
-        
+
     subcommand, argv = shift(argv)
-    prg_path,   argv = shift(argv)
+    prg_path, argv = shift(argv)
 
     print("[INFO] Started lexing and parsing")
     program = load_program_from_file(prg_path)
 
     print("[INFO] Started generating")
     if subcommand == "sim":
-        simulate_program(program)
-        
+        pass
     elif subcommand == "com":
         compile_program("output.asm", program)
-        run_and_write(["yasm", "-felf64", "output.asm"])
+        run_and_write(["yasm", "-f", "elf64", "output.asm"])
         run_and_write(["ld", "-o", "output", "output.o"])
 
     else:
         print(f"ERROR: unknown subcommand {subcommand}")
         exit(1)
 
-    
+
 if __name__ == '__main__':
     main()
