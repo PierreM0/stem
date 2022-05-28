@@ -676,7 +676,7 @@ def compile_program(file_name, program, rec=False):
             if type(op.left_side) == tuple:
                 if type(op.left_side[1]) == str:
                     var1 = var_dict[op.left_side[1]]
-                else type(op.left_side[1]) == int:
+                elif type(op.left_side[1]) == int:
                     var1 = op.left_side[1]
             else:
                 assert False, "unreachable"
